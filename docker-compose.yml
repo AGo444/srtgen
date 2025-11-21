@@ -1,0 +1,32 @@
+version: '3.8'
+
+services:
+  srtgen:
+    build: .
+    image: srtgen:latest
+    container_name: srtgen
+    labels:
+      - "net.unraid.docker.icon=https://raw.githubusercontent.com/AGo444/SRT/master/icon-96.png"
+    ports:
+      - "5000:5000"
+    volumes:
+      # Mount TV Series folder (read-write for SRT files)
+      - /mnt/user/TV-Series:/media/TV-Series:rw
+      # Mount Movies folder (read-write for SRT files)
+      - /mnt/user/Movies:/media/Movies:rw
+      # Mount output folder
+      - /mnt/user/appdata/SRTGEN/output:/output
+    environment:
+      - TZ=Europe/Amsterdam
+      - MEDIA_FOLDER=/media
+      - WHISPER_MODEL=medium
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    restart: unless-stopped

@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SRTGEN - Subtitle Generator</title>
+    <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🎬 SRTGEN</h1>
+            <p>Automatic Subtitle Generator</p>
+            <button id="settingsToggle" class="settings-icon" title="Settings">⚙️</button>
+        </header>
+
+        <!-- Settings Modal -->
+        <div id="settingsModal" class="modal" style="display: none;">
+            <div class="modal-content">
+                <span class="modal-close" id="closeSettings">&times;</span>
+                <h2>⚙️ Settings</h2>
+                <div class="form-group">
+                    <label for="defaultLanguage">Default Language</label>
+                    <select id="defaultLanguage">
+                        <option value="en-US">English (US)</option>
+                        <option value="en-GB">English (UK)</option>
+                        <option value="nl-NL">Dutch</option>
+                        <option value="de-DE">German</option>
+                        <option value="fr-FR">French</option>
+                        <option value="es-ES">Spanish</option>
+                        <option value="it-IT">Italian</option>
+                        <option value="pt-PT">Portuguese</option>
+                    </select>
+                </div>
+                <button id="saveSettingsBtn" class="btn btn-primary">Save Settings</button>
+            </div>
+        </div>
+
+        <div class="main-content">
+            <!-- File Browser -->
+            <div class="file-browser">
+                <div class="breadcrumb">
+                    <span class="breadcrumb-item" data-path="">📁 Media</span>
+                    <span id="breadcrumb-path"></span>
+                </div>
+                
+                <div class="search-box">
+                    <input type="text" id="searchInput" placeholder="🔍 Search files..." />
+                </div>
+                
+                <div class="file-list" id="fileList">
+                    <div class="loading">Loading files...</div>
+                </div>
+            </div>
+
+            <!-- Sidebar -->
+            <aside class="sidebar">
+                <div class="card">
+                    <h3>Selected File</h3>
+                    <div id="selectedFile" class="no-selection">
+                        No file selected
+                    </div>
+                </div>
+
+                <div class="card">
+                    <h3>Transcription Settings</h3>
+                    <div class="form-group">
+                        <label for="language">Language</label>
+                        <select id="language">
+                            <option value="en-US">English (US)</option>
+                            <option value="en-GB">English (UK)</option>
+                            <option value="nl-NL">Dutch</option>
+                            <option value="de-DE">German</option>
+                            <option value="fr-FR">French</option>
+                            <option value="es-ES">Spanish</option>
+                            <option value="it-IT">Italian</option>
+                            <option value="pt-PT">Portuguese</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>
+                            <input type="checkbox" id="overwrite" checked>
+                            Overwrite existing SRT files
+                        </label>
+                    </div>
+                    <button id="transcribeBtn" class="btn btn-primary" disabled>
+                        Generate Subtitles
+                    </button>
+                </div>
+
+                <div class="card">
+                    <h3>Active Jobs</h3>
+                    <div id="jobList" class="job-list">
+                        <p class="text-muted">No active jobs</p>
+                    </div>
+                </div>
+            </aside>
+        </div>
+    </div>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>

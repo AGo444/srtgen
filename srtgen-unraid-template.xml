@@ -1,0 +1,34 @@
+<?xml version="1.0"?>
+<Container version="2">
+  <Name>SRTGEN</Name>
+  <Repository>srtgen:latest</Repository>
+  <Registry>local</Registry>
+  <Network>bridge</Network>
+  <MyIP/>
+  <Shell>sh</Shell>
+  <Privileged>false</Privileged>
+  <Support>https://github.com/yourusername/srtgen</Support>
+  <Project>https://github.com/yourusername/srtgen</Project>
+  <Overview>AI-powered subtitle generator using OpenAI Whisper and NLLB translation. Automatically transcribes video files to SRT format with GPU acceleration and multi-language support.</Overview>
+  <Category>MediaApp:Video MediaServer:Video Tools:</Category>
+  <WebUI>http://[IP]:[PORT:5000]/</WebUI>
+  <TemplateURL/>
+  <Icon>https://raw.githubusercontent.com/AGo444/SRT/master/icon-96.png</Icon>
+  <ExtraParams>--runtime=nvidia</ExtraParams>
+  <PostArgs/>
+  <CPUset/>
+  <DateInstalled></DateInstalled>
+  <DonateText/>
+  <DonateLink/>
+  <Requires>NVIDIA GPU with compatible drivers installed</Requires>
+  <Config Name="WebUI Port" Target="5000" Default="5000" Mode="tcp" Description="Web interface port" Type="Port" Display="always" Required="true" Mask="false">5000</Config>
+  <Config Name="TV Series Folder" Target="/media/TV-Series" Default="/mnt/user/TV-Series" Mode="rw" Description="Path to TV Series media folder (read-write for SRT files)" Type="Path" Display="always" Required="false" Mask="false">/mnt/user/TV-Series</Config>
+  <Config Name="Movies Folder" Target="/media/Movies" Default="/mnt/user/Movies" Mode="rw" Description="Path to Movies media folder (read-write for SRT files)" Type="Path" Display="always" Required="false" Mask="false">/mnt/user/Movies</Config>
+  <Config Name="Output Folder" Target="/output" Default="/mnt/user/appdata/SRTGEN/output" Mode="rw" Description="Output folder for generated subtitles" Type="Path" Display="advanced" Required="false" Mask="false">/mnt/user/appdata/SRTGEN/output</Config>
+  <Config Name="Appdata" Target="/app" Default="/mnt/user/appdata/SRTGEN" Mode="rw" Description="Container appdata storage" Type="Path" Display="advanced" Required="true" Mask="false">/mnt/user/appdata/SRTGEN</Config>
+  <Config Name="Whisper Model Size" Target="WHISPER_MODEL" Default="medium" Mode="" Description="Whisper AI model size: tiny, base, small, medium, large, large-v2, large-v3 (larger = more accurate but slower)" Type="Variable" Display="always" Required="false" Mask="false">medium</Config>
+  <Config Name="Timezone" Target="TZ" Default="Europe/Amsterdam" Mode="" Description="Container timezone (e.g., America/New_York, Europe/London)" Type="Variable" Display="always" Required="false" Mask="false">Europe/Amsterdam</Config>
+  <Config Name="Media Folder" Target="MEDIA_FOLDER" Default="/media" Mode="" Description="Internal media folder path (do not change unless needed)" Type="Variable" Display="advanced" Required="false" Mask="false">/media</Config>
+  <Config Name="NVIDIA Visible Devices" Target="NVIDIA_VISIBLE_DEVICES" Default="all" Mode="" Description="Which NVIDIA GPUs to use (all, or specific GPU IDs like 0,1)" Type="Variable" Display="advanced" Required="false" Mask="false">all</Config>
+  <Config Name="NVIDIA Driver Capabilities" Target="NVIDIA_DRIVER_CAPABILITIES" Default="compute,utility" Mode="" Description="NVIDIA driver capabilities required" Type="Variable" Display="advanced" Required="false" Mask="false">compute,utility</Config>
+</Container>
