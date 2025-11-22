@@ -31,4 +31,7 @@
   <Config Name="Media Folder" Target="MEDIA_FOLDER" Default="/media" Mode="" Description="Internal media folder path (do not change unless needed)" Type="Variable" Display="advanced" Required="false" Mask="false">/media</Config>
   <Config Name="NVIDIA Visible Devices" Target="NVIDIA_VISIBLE_DEVICES" Default="all" Mode="" Description="Which NVIDIA GPUs to use (all, or specific GPU IDs like 0,1)" Type="Variable" Display="advanced" Required="false" Mask="false">all</Config>
   <Config Name="NVIDIA Driver Capabilities" Target="NVIDIA_DRIVER_CAPABILITIES" Default="compute,utility" Mode="" Description="NVIDIA driver capabilities required" Type="Variable" Display="advanced" Required="false" Mask="false">compute,utility</Config>
+  <Config Name="Bazarr Target Language" Target="SRTGEN_TARGET_LANG" Default="nl" Mode="" Description="Default target language for Bazarr post-processing (e.g., nl, fr, de, es)" Type="Variable" Display="always" Required="false" Mask="false">nl</Config>
+  <Config Name="Bazarr Whisper Model" Target="SRTGEN_MODEL" Default="base" Mode="" Description="Whisper model for Bazarr (tiny, base, small, medium, large)" Type="Variable" Display="always" Required="false" Mask="false">base</Config>
+  <Config Name="Bazarr Overwrite" Target="SRTGEN_OVERWRITE" Default="false" Mode="" Description="Allow Bazarr to overwrite existing SRT files (true/false)" Type="Variable" Display="always" Required="false" Mask="false">false</Config>
 </Container>
