@@ -63,6 +63,19 @@
                 <div class="search-box">
                     <input type="text" id="searchInput" placeholder="🔍 Search files..." />
                 </div>
+
+                <div class="batch-actions">
+                    <div class="batch-controls">
+                        <button id="selectFolderBtn" class="btn btn-secondary" disabled>
+                            📁 Process Current Folder
+                        </button>
+                        <label id="subfolderLabel" class="subfolder-inline" style="display: none;">
+                            <input type="checkbox" id="includeSubfolders">
+                            Include subfolders
+                        </label>
+                    </div>
+                    <div id="selectedFilesList" class="selected-files-list" style="display: none;"></div>
+                </div>
                 
                 <div class="file-list" id="fileList">
                     <div class="loading">Loading files...</div>
@@ -72,7 +85,7 @@
             <!-- Sidebar -->
             <aside class="sidebar">
                 <div class="card">
-                    <h3>Selected File</h3>
+                    <h3>Selected File/Folder</h3>
                     <div id="selectedFile" class="no-selection">
                         No file selected
                     </div>

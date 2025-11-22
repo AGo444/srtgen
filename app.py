@@ -298,6 +298,74 @@ def browse():
     })
 
 
+@app.route('/api/browse/scan', methods=['POST'])
+def scan_folder():
+    """Scan folder for video files (with optional recursion)"""
+    data = request.json
+    folder_path = data.get('folder', '')
+    recursive = data.get('recursive', False)
+    
+    if not folder_path:
+        return jsonify({'error': 'No folder specified'}), 400
+    
+    full_path = os.path.join(app.config['MEDIA_FOLDER'], folder_path)
+    
+    if not os.path.exists(full_path):
+        return jsonify({'error': 'Folder not found'}), 404
+    
+    if not os.path.isdir(full_path):
+        return jsonify({'error': 'Path is not a directory'}), 400
+    
+    video_files = []
+    
+    try:
+        if recursive:
+            # Recursive scan
+            for root, dirs, files in os.walk(full_path):
+                for file in sorted(files):
+                    if file.lower().endswith(('.mkv', '.mp4', '.avi')):
+                        file_full_path = os.path.join(root, file)
+                        rel_path = os.path.relpath(file_full_path, app.config['MEDIA_FOLDER'])
+                        
+                        # Check for existing SRT files
+                        base_path = os.path.splitext(file_full_path)[0]
+                        has_srt = any(os.path.exists(f"{base_path}.{ext}.srt") 
+                                    for ext in ['en', 'nl', 'de', 'fr', 'es', 'it', 'pt'])
+                        
+                        video_files.append({
+                            'name': file,
+                            'path': rel_path,
+                            'full_path': file_full_path,
+                            'has_srt': has_srt
+                        })
+        else:
+            # Single directory scan
+            for file in sorted(os.listdir(full_path)):
+                file_full_path = os.path.join(full_path, file)
+                if os.path.isfile(file_full_path) and file.lower().endswith(('.mkv', '.mp4', '.avi')):
+                    rel_path = os.path.relpath(file_full_path, app.config['MEDIA_FOLDER'])
+                    
+                    # Check for existing SRT files
+                    base_path = os.path.splitext(file_full_path)[0]
+                    has_srt = any(os.path.exists(f"{base_path}.{ext}.srt") 
+                                for ext in ['en', 'nl', 'de', 'fr', 'es', 'it', 'pt'])
+                    
+                    video_files.append({
+                        'name': file,
+                        'path': rel_path,
+                        'full_path': file_full_path,
+                        'has_srt': has_srt
+                    })
+        
+        return jsonify({
+            'files': video_files,
+            'count': len(video_files)
+        })
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 @app.route('/api/transcribe', methods=['POST'])
 def transcribe():
     """Start transcription job"""
@@ -360,6 +428,83 @@ def transcribe():
     save_jobs_to_disk()
     
     return jsonify({'job_id': job_id})
+
+
+@app.route('/api/transcribe/batch', methods=['POST'])
+def transcribe_batch():
+    """Start batch transcription for specific files"""
+    global job_counter
+    
+    data = request.json
+    file_paths = data.get('files', [])
+    language = data.get('language', 'en-US')
+    overwrite = data.get('overwrite', True)
+    
+    if not file_paths:
+        return jsonify({'error': 'No files specified'}), 400
+    
+    # Validate all files exist and collect info
+    video_files = []
+    for rel_path in file_paths:
+        full_path = os.path.join(app.config['MEDIA_FOLDER'], rel_path)
+        
+        if not os.path.exists(full_path):
+            return jsonify({'error': f'File not found: {rel_path}'}), 404
+        
+        if not os.path.isfile(full_path):
+            return jsonify({'error': f'Not a file: {rel_path}'}), 400
+        
+        # Check for existing SRT files if overwrite is False
+        if not overwrite:
+            base_path = os.path.splitext(full_path)[0]
+            has_srt = any(os.path.exists(f"{base_path}.{ext}.srt") 
+                         for ext in ['en', language[:2]])
+            if has_srt:
+                continue  # Skip files with existing SRTs
+        
+        video_files.append({
+            'path': full_path,
+            'name': os.path.basename(full_path),
+            'rel_path': rel_path
+        })
+    
+    if not video_files:
+        return jsonify({'error': 'No files to process (all have existing subtitles or overwrite disabled)'}), 409
+    
+    # Create jobs for all files
+    created_jobs = []
+    for vf in video_files:
+        job_id = job_counter
+        job_counter += 1
+        
+        jobs[job_id] = {
+            'id': job_id,
+            'file': vf['rel_path'],
+            'language': language,
+            'status': 'pending',
+            'status_message': 'In queue...',
+            'progress': 0,
+            'started': datetime.now().isoformat()
+        }
+        
+        # Start transcription thread
+        thread = threading.Thread(target=run_transcription, args=(job_id, vf['path'], language))
+        thread.daemon = True
+        thread.start()
+        
+        created_jobs.append({
+            'job_id': job_id,
+            'file': vf['name']
+        })
+    
+    # Save jobs to disk
+    save_jobs_to_disk()
+    
+    return jsonify({
+        'message': f'Created {len(created_jobs)} transcription jobs',
+        'count': len(created_jobs),
+        'jobs': created_jobs
+    })
 
 
 

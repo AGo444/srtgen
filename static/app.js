@@ -2,6 +2,10 @@ let currentPath = '';
 let selectedFile = null;
 let jobs = {};
 let allFiles = []; // Store all files for filtering
+let isFolderMode = false; // Track folder selection mode
+let selectedFolderFiles = []; // Files selected for batch processing
+let excludedFiles = new Set(); // Files excluded from batch processing
+let hasSubfolders = false; // Whether current folder has subfolders
 
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
@@ -17,6 +21,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
 function setupEventListeners() {
     document.getElementById('transcribeBtn').addEventListener('click', startTranscription);
+    document.getElementById('selectFolderBtn').addEventListener('click', selectCurrentFolder);
     document.getElementById('saveSettingsBtn').addEventListener('click', saveSettings);
     document.getElementById('settingsToggle').addEventListener('click', openSettings);
     document.getElementById('closeSettings').addEventListener('click', closeSettings);
@@ -50,6 +55,13 @@ function setupEventListeners() {
     // Sync default language to transcription language
     document.getElementById('defaultLanguage').addEventListener('change', (e) => {
         document.getElementById('language').value = e.target.value;
+    });
+    
+    // Rescan folder when subfolder checkbox changes
+    document.getElementById('includeSubfolders').addEventListener('change', () => {
+        if (isFolderMode) {
+            selectCurrentFolder();
+        }
     });
 }
 
@@ -106,6 +118,14 @@ async function loadFiles(path) {
         allFiles = data.items; // Store for filtering
         renderFiles(allFiles);
         updateBreadcrumb(path);
+        
+        // Check if folder has subfolders and video files
+        hasSubfolders = data.items.some(item => item.type === 'directory');
+        const hasVideos = data.items.some(item => item.type === 'file');
+        
+        // Enable folder button if we're in a directory with videos
+        const folderBtn = document.getElementById('selectFolderBtn');
+        folderBtn.disabled = !path || !hasVideos;
     } catch (error) {
         fileList.innerHTML = `<div class="loading">Error loading files: ${error.message}</div>`;
     }
@@ -170,6 +190,13 @@ function renderFiles(items) {
 
 function selectFile(file) {
     selectedFile = file;
+    isFolderMode = false;
+    selectedFolderFiles = [];
+    excludedFiles.clear();
+    
+    // Hide folder selection UI
+    document.getElementById('selectedFilesList').style.display = 'none';
+    document.getElementById('subfolderLabel').style.display = 'none';
     
     // Update UI
     document.querySelectorAll('.file-item').forEach(item => {
@@ -197,43 +224,220 @@ function selectFile(file) {
     document.getElementById('transcribeBtn').disabled = false;
 }
 
-async function startTranscription() {
-    if (!selectedFile) return;
+async function selectCurrentFolder() {
+    if (!currentPath) return;
     
-    const language = document.getElementById('language').value;
-    const overwrite = document.getElementById('overwrite').checked;
-    const btn = document.getElementById('transcribeBtn');
+    isFolderMode = true;
+    selectedFile = null;
+    excludedFiles.clear();
     
-    btn.disabled = true;
-    btn.textContent = 'Starting...';
+    // Show/hide subfolder checkbox based on whether subfolders exist
+    const subfolderLabel = document.getElementById('subfolderLabel');
+    subfolderLabel.style.display = hasSubfolders ? 'flex' : 'none';
+    
+    // Clear file selection in file browser
+    document.querySelectorAll('.file-item').forEach(item => {
+        item.classList.remove('selected');
+    });
+    
+    // Scan for video files
+    const includeSubfolders = document.getElementById('includeSubfolders').checked;
     
     try {
-        const response = await fetch('/api/transcribe', {
+        const response = await fetch('/api/browse/scan', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({
-                path: selectedFile.path,
-                language: language,
-                overwrite: overwrite
+                folder: currentPath,
+                recursive: includeSubfolders
             })
         });
         
         const data = await response.json();
         
-        if (response.status === 409) {
-            // Conflict - existing files
-            const files = data.existing_files.join(', ');
-            const message = `${data.message}\n\nExisting files:\n${files}\n\nEnable the "Overwrite existing SRT files" checkbox to continue.`;
-            alert(message);
-        } else if (data.error) {
+        if (data.error) {
             alert('Error: ' + data.error);
+            return;
+        }
+        
+        selectedFolderFiles = data.files;
+        
+        // Show selected files list
+        renderSelectedFilesList();
+        
+        // Update sidebar
+        const selectedFileDiv = document.getElementById('selectedFile');
+        selectedFileDiv.innerHTML = `
+            <div><strong>📁 Folder Selected</strong></div>
+            <div class="file-meta">Path: ${currentPath}</div>
+            <div class="file-meta">${selectedFolderFiles.length} video file(s) found</div>
+            <div class="file-meta" style="color: var(--primary);">${selectedFolderFiles.length - excludedFiles.size} will be processed</div>
+        `;
+        
+        document.getElementById('transcribeBtn').disabled = selectedFolderFiles.length === 0;
+    } catch (error) {
+        alert('Error scanning folder: ' + error.message);
+    }
+}
+
+function renderSelectedFilesList() {
+    const container = document.getElementById('selectedFilesList');
+    
+    if (selectedFolderFiles.length === 0) {
+        container.style.display = 'none';
+        return;
+    }
+    
+    container.style.display = 'block';
+    
+    const activeCount = selectedFolderFiles.length - excludedFiles.size;
+    
+    container.innerHTML = `
+        <div class="selected-files-header">
+            <h4>📋 Selected Files (${activeCount}/${selectedFolderFiles.length})</h4>
+            <button class="clear-selection" onclick="clearFolderSelection()">✕ Clear</button>
+        </div>
+        ${selectedFolderFiles.map((file, index) => {
+            const isExcluded = excludedFiles.has(file.path);
+            const srtStatus = file.has_srt ? '✓ Has SRT' : '';
+            return `
+                <div class="selected-file-item ${isExcluded ? 'excluded' : ''}">
+                    <span class="selected-file-name" title="${file.path}">
+                        ${file.name} ${srtStatus}
+                    </span>
+                    <div class="selected-file-actions">
+                        <button class="btn-exclude ${isExcluded ? 'excluded' : ''}" onclick="toggleExcludeFile('${file.path.replace(/'/g, "\\'")}')">  
+                            ${isExcluded ? '↩ Include' : '✕ Exclude'}
+                        </button>
+                    </div>
+                </div>
+            `;
+        }).join('')}
+    `;
+}
+
+function toggleExcludeFile(filePath) {
+    if (excludedFiles.has(filePath)) {
+        excludedFiles.delete(filePath);
+    } else {
+        excludedFiles.add(filePath);
+    }
+    
+    renderSelectedFilesList();
+    
+    // Update sidebar count
+    const selectedFileDiv = document.getElementById('selectedFile');
+    const activeCount = selectedFolderFiles.length - excludedFiles.size;
+    selectedFileDiv.innerHTML = `
+        <div><strong>📁 Folder Selected</strong></div>
+        <div class="file-meta">Path: ${currentPath}</div>
+        <div class="file-meta">${selectedFolderFiles.length} video file(s) found</div>
+        <div class="file-meta" style="color: var(--primary);">${activeCount} will be processed</div>
+    `;
+    
+    // Disable button if all files are excluded
+    document.getElementById('transcribeBtn').disabled = activeCount === 0;
+}
+
+function clearFolderSelection() {
+    isFolderMode = false;
+    selectedFolderFiles = [];
+    excludedFiles.clear();
+    
+    document.getElementById('selectedFilesList').style.display = 'none';
+    document.getElementById('subfolderLabel').style.display = 'none';
+    
+    const selectedFileDiv = document.getElementById('selectedFile');
+    selectedFileDiv.innerHTML = '<div class="no-selection">No file selected</div>';
+    
+    document.getElementById('transcribeBtn').disabled = true;
+}
+
+async function startTranscription() {
+    if (!selectedFile && !isFolderMode) return;
+    
+    const language = document.getElementById('language').value;
+    const overwrite = document.getElementById('overwrite').checked;
+    const includeSubfolders = document.getElementById('includeSubfolders').checked;
+    const btn = document.getElementById('transcribeBtn');
+    
+    btn.disabled = true;
+    
+    try {
+        if (isFolderMode) {
+            // Batch process folder with selected files only
+            btn.textContent = 'Adding jobs...';
+            
+            // Filter out excluded files
+            const filesToProcess = selectedFolderFiles
+                .filter(f => !excludedFiles.has(f.path))
+                .map(f => f.path);
+            
+            if (filesToProcess.length === 0) {
+                alert('No files selected for processing');
+                btn.disabled = false;
+                btn.textContent = 'Generate Subtitles';
+                return;
+            }
+            
+            const response = await fetch('/api/transcribe/batch', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    files: filesToProcess,
+                    language: language,
+                    overwrite: overwrite
+                })
+            });
+            
+            const data = await response.json();
+            
+            if (data.error) {
+                alert('Error: ' + data.error);
+            } else {
+                // Add all jobs to the queue
+                data.jobs.forEach(job => {
+                    jobs[job.job_id] = {
+                        id: job.job_id,
+                        file: job.file,
+                        status: 'pending'
+                    };
+                });
+                
+                alert(`Added ${data.jobs.length} file(s) to the queue!`);
+                updateJobList();
+            }
         } else {
-            jobs[data.job_id] = {
-                id: data.job_id,
-                file: selectedFile.name,
-                status: 'pending'
-            };
-            updateJobList();
+            // Single file transcription
+            btn.textContent = 'Starting...';
+            
+            const response = await fetch('/api/transcribe', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    path: selectedFile.path,
+                    language: language,
+                    overwrite: overwrite
+                })
+            });
+            
+            const data = await response.json();
+            
+            if (response.status === 409) {
+                // Conflict - existing files
+                const files = data.existing_files.join(', ');
+                const message = `${data.message}\n\nExisting files:\n${files}\n\nEnable the "Overwrite existing SRT files" checkbox to continue.`;
+                alert(message);
+            } else if (data.error) {
+                alert('Error: ' + data.error);
+            } else {
+                jobs[data.job_id] = {
+                    id: data.job_id,
+                    file: selectedFile.name,
+                    status: 'pending'
+                };
+                updateJobList();
+            }
         }
     } catch (error) {
         alert('Error: ' + error.message);

@@ -152,6 +152,134 @@ header p {
     color: var(--text-muted);
 }
 
+.batch-actions {
+    margin-bottom: 15px;
+}
+
+.batch-controls {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 10px;
+}
+
+.batch-controls .btn {
+    flex: 1;
+}
+
+.subfolder-inline {
+    display: flex;
+    align-items: center;
+    white-space: nowrap;
+    font-size: 0.9rem;
+    color: var(--text);
+    cursor: pointer;
+    padding: 8px 12px;
+    background: var(--bg-tertiary);
+    border-radius: 5px;
+    border: 1px solid var(--border);
+    transition: all 0.2s;
+}
+
+.subfolder-inline:hover {
+    background: var(--bg);
+    border-color: var(--primary);
+}
+
+.subfolder-inline input[type="checkbox"] {
+    margin-right: 6px;
+}
+
+.selected-files-list {
+    background: var(--bg-tertiary);
+    border: 2px solid var(--primary);
+    border-radius: 8px;
+    padding: 12px;
+    max-height: 300px;
+    overflow-y: auto;
+}
+
+.selected-files-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--border);
+}
+
+.selected-files-header h4 {
+    margin: 0;
+    color: var(--primary);
+    font-size: 0.95rem;
+}
+
+.clear-selection {
+    background: var(--danger);
+    color: white;
+    border: none;
+    padding: 4px 10px;
+    border-radius: 4px;
+    font-size: 0.8rem;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.clear-selection:hover {
+    background: #dc2626;
+}
+
+.selected-file-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px;
+    margin-bottom: 6px;
+    background: var(--bg);
+    border-radius: 5px;
+    font-size: 0.85rem;
+}
+
+.selected-file-item.excluded {
+    opacity: 0.5;
+    text-decoration: line-through;
+}
+
+.selected-file-name {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.selected-file-actions {
+    display: flex;
+    gap: 5px;
+}
+
+.btn-exclude {
+    background: var(--warning);
+    color: white;
+    border: none;
+    padding: 3px 8px;
+    border-radius: 3px;
+    font-size: 0.75rem;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.btn-exclude:hover {
+    background: #ea580c;
+}
+
+.btn-exclude.excluded {
+    background: var(--success);
+}
+
+.btn-exclude.excluded:hover {
+    background: #059669;
+}
+
 .file-list {
     max-height: 600px;
     overflow-y: auto;
