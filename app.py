@@ -191,25 +191,20 @@ def transcribe():
                 'message': 'Enable "Overwrite existing SRT files" to continue'
             }), 409
     
-    # Check concurrent job limit
-    with active_threads_lock:
-        running_jobs = sum(1 for j in jobs.values() if j['status'] == 'running')
-        if running_jobs >= app.config['MAX_CONCURRENT_JOBS']:
-            return jsonify({
-                'error': f'Maximum concurrent jobs ({app.config["MAX_CONCURRENT_JOBS"]}) reached',
-                'message': 'Please wait for current jobs to complete'
-            }), 429
-    
-    # Create job
+    # Create job (always accept, queue management happens in thread)
     job_id = job_counter
     job_counter += 1
+    
+    # Check if queue will be full
+    running_count = sum(1 for j in jobs.values() if j['status'] in ['running', 'pending'])
+    queue_position = max(0, running_count - app.config['MAX_CONCURRENT_JOBS'] + 1)
     
     jobs[job_id] = {
         'id': job_id,
         'file': file_path,
         'language': language,
         'status': 'pending',
-        'status_message': 'Waiting for available slot...',
+        'status_message': f'In queue (position {queue_position})...' if queue_position > 0 else 'Starting...',
         'progress': 0,
         'started': datetime.now().isoformat()
     }
@@ -232,13 +227,23 @@ def run_transcription(job_id, file_path, language):
         with active_threads_lock:
             if active_threads < app.config['MAX_CONCURRENT_JOBS']:
                 active_threads += 1
+                jobs[job_id]['status_message'] = 'Starting transcription...'
                 break
+        
+        # Update queue position while waiting
+        with active_threads_lock:
+            running_count = sum(1 for j in jobs.values() if j['status'] == 'running')
+            waiting_jobs = [j for j in jobs.values() if j['status'] == 'pending' and j['id'] < job_id]
+            queue_position = len(waiting_jobs) + max(0, running_count - app.config['MAX_CONCURRENT_JOBS'] + 1)
+            jobs[job_id]['status_message'] = f'In queue (position {queue_position})...'
+        
         # Check if cancelled while waiting
         if job_cancel_flags.get(job_id, False):
             jobs[job_id]['status'] = 'cancelled'
-            jobs[job_id]['status_message'] = 'Cancelled while waiting'
+            jobs[job_id]['status_message'] = 'Cancelled while in queue'
             return
-        threading.Event().wait(1)  # Wait 1 second before checking again
+        
+        threading.Event().wait(2)  # Check every 2 seconds
     
     # Import modules fresh
     import sys
