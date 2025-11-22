@@ -20,6 +20,7 @@ app.config['MEDIA_FOLDER'] = os.environ.get('MEDIA_FOLDER', '/media')
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024 * 1024  # 16GB max file size
 app.config['MAX_CONCURRENT_JOBS'] = int(os.environ.get('MAX_CONCURRENT_JOBS', '2'))
 app.config['JOBS_FILE'] = '/output/jobs_queue.json'
+app.config['HISTORY_FILE'] = '/output/job_history.json'
 
 # Store active transcription jobs
 jobs = {}
@@ -27,6 +28,74 @@ job_counter = 0
 job_cancel_flags = {}
 active_threads = 0
 active_threads_lock = threading.Lock()
+job_history = []
+
+
+def add_to_history(job_data):
+    """Add completed/failed job to history"""
+    global job_history
+    
+    history_entry = {
+        'id': job_data['id'],
+        'file': job_data['file'],
+        'language': job_data['language'],
+        'status': job_data['status'],
+        'started': job_data.get('started'),
+        'completed': datetime.now().isoformat(),
+        'duration': None,
+        'result': None,
+        'error': None
+    }
+    
+    # Calculate duration
+    if job_data.get('started'):
+        try:
+            start_time = datetime.fromisoformat(job_data['started'])
+            end_time = datetime.now()
+            duration_seconds = (end_time - start_time).total_seconds()
+            history_entry['duration'] = f"{int(duration_seconds // 60)}m {int(duration_seconds % 60)}s"
+        except:
+            pass
+    
+    # Add result or error
+    if job_data['status'] == 'completed':
+        history_entry['result'] = job_data.get('generated_files', [])
+        history_entry['detected_language'] = job_data.get('detected_language')
+    elif job_data['status'] == 'failed':
+        history_entry['error'] = job_data.get('error', 'Unknown error')
+    
+    job_history.insert(0, history_entry)  # Add to beginning
+    
+    # Keep only last 100 entries
+    if len(job_history) > 100:
+        job_history = job_history[:100]
+    
+    # Save to disk
+    save_history_to_disk()
+
+
+def save_history_to_disk():
+    """Save history to disk"""
+    try:
+        os.makedirs(os.path.dirname(app.config['HISTORY_FILE']), exist_ok=True)
+        with open(app.config['HISTORY_FILE'], 'w') as f:
+            json.dump(job_history, f, indent=2)
+    except Exception as e:
+        print(f"Failed to save history to disk: {e}")
+
+
+def load_history_from_disk():
+    """Load history from disk"""
+    global job_history
+    
+    try:
+        if os.path.exists(app.config['HISTORY_FILE']):
+            with open(app.config['HISTORY_FILE'], 'r') as f:
+                job_history = json.load(f)
+            print(f"Loaded {len(job_history)} history entries")
+    except Exception as e:
+        print(f"Failed to load history from disk: {e}")
+        job_history = []
 
 
 def save_jobs_to_disk():
@@ -430,11 +499,18 @@ def run_transcription(job_id, file_path, language):
         jobs[job_id]['detected_language'] = detected_lang
         jobs[job_id]['generated_files'] = generated_files
         
+        # Add to history
+        add_to_history(jobs[job_id])
+        
     except Exception as e:
         jobs[job_id]['status'] = 'failed'
         jobs[job_id]['error'] = str(e)
         import traceback
         jobs[job_id]['traceback'] = traceback.format_exc()
+        
+        # Add to history
+        add_to_history(jobs[job_id])
+        
     finally:
         # Release thread slot
         with active_threads_lock:
@@ -486,8 +562,24 @@ def list_jobs():
     return jsonify(list(jobs.values()))
 
 
+@app.route('/api/history')
+def get_history():
+    """Get job history"""
+    return jsonify(job_history)
+
+
+@app.route('/api/history/clear', methods=['POST'])
+def clear_history():
+    """Clear job history"""
+    global job_history
+    job_history = []
+    save_history_to_disk()
+    return jsonify({'success': True})
+
+
 if __name__ == '__main__':
-    # Load saved jobs on startup
+    # Load saved jobs and history on startup
     load_jobs_from_disk()
+    load_history_from_disk()
     
     app.run(host='0.0.0.0', port=5000, debug=False)

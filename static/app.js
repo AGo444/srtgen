@@ -20,12 +20,19 @@ function setupEventListeners() {
     document.getElementById('saveSettingsBtn').addEventListener('click', saveSettings);
     document.getElementById('settingsToggle').addEventListener('click', openSettings);
     document.getElementById('closeSettings').addEventListener('click', closeSettings);
+    document.getElementById('historyToggle').addEventListener('click', openHistory);
+    document.getElementById('closeHistory').addEventListener('click', closeHistory);
+    document.getElementById('clearHistoryBtn').addEventListener('click', clearHistory);
     
-    // Close modal when clicking outside
+    // Close modals when clicking outside
     window.addEventListener('click', (e) => {
-        const modal = document.getElementById('settingsModal');
-        if (e.target === modal) {
+        const settingsModal = document.getElementById('settingsModal');
+        const historyModal = document.getElementById('historyModal');
+        if (e.target === settingsModal) {
             closeSettings();
+        }
+        if (e.target === historyModal) {
+            closeHistory();
         }
     });
     
@@ -329,6 +336,118 @@ async function cancelJob(jobId) {
     } catch (error) {
         console.error('Error cancelling job:', error);
     }
+}
+
+// History functions
+async function openHistory() {
+    document.getElementById('historyModal').style.display = 'flex';
+    await loadHistory();
+}
+
+function closeHistory() {
+    document.getElementById('historyModal').style.display = 'none';
+}
+
+async function loadHistory() {
+    try {
+        const response = await fetch('/api/history');
+        const history = await response.json();
+        
+        const historyList = document.getElementById('historyList');
+        
+        if (history.length === 0) {
+            historyList.innerHTML = '<p class="text-muted">No history available</p>';
+            return;
+        }
+        
+        historyList.innerHTML = history.map(entry => {
+            const statusClass = entry.status === 'completed' ? 'success' : 
+                               entry.status === 'failed' ? 'failed' : 'cancelled';
+            
+            let resultHtml = '';
+            if (entry.status === 'completed' && entry.result) {
+                const files = Array.isArray(entry.result) ? entry.result : [entry.result];
+                resultHtml = `
+                    <div class="history-result">
+                        <strong>Generated files:</strong><br>
+                        ${files.map(f => `📄 ${f.split('/').pop()}`).join('<br>')}
+                    </div>
+                `;
+            } else if (entry.status === 'failed' && entry.error) {
+                resultHtml = `
+                    <div class="history-error">
+                        <strong>Error:</strong> ${entry.error}
+                    </div>
+                `;
+            }
+            
+            return `
+                <div class="history-item ${statusClass}">
+                    <div class="history-item-header">
+                        <div class="history-file">📁 ${entry.file}</div>
+                        <span class="history-status ${statusClass}">${entry.status}</span>
+                    </div>
+                    <div class="history-meta">
+                        <div class="history-meta-item">
+                            <strong>Started:</strong> ${formatDateTime(entry.started)}
+                        </div>
+                        <div class="history-meta-item">
+                            <strong>Completed:</strong> ${formatDateTime(entry.completed)}
+                        </div>
+                        <div class="history-meta-item">
+                            <strong>Duration:</strong> ${entry.duration || 'N/A'}
+                        </div>
+                        <div class="history-meta-item">
+                            <strong>Language:</strong> ${entry.language}
+                            ${entry.detected_language ? ` → ${entry.detected_language}` : ''}
+                        </div>
+                    </div>
+                    ${resultHtml}
+                </div>
+            `;
+        }).join('');
+        
+    } catch (error) {
+        console.error('Error loading history:', error);
+        document.getElementById('historyList').innerHTML = 
+            '<p class="text-muted">Error loading history</p>';
+    }
+}
+
+async function clearHistory() {
+    if (!confirm('Are you sure you want to clear all job history?')) {
+        return;
+    }
+    
+    try {
+        const response = await fetch('/api/history/clear', {
+            method: 'POST'
+        });
+        
+        if (response.ok) {
+            await loadHistory();
+        }
+    } catch (error) {
+        console.error('Error clearing history:', error);
+    }
+}
+
+function formatDateTime(isoString) {
+    if (!isoString) return 'N/A';
+    
+    const date = new Date(isoString);
+    const now = new Date();
+    const diffMs = now - date;
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMs / 3600000);
+    const diffDays = Math.floor(diffMs / 86400000);
+    
+    if (diffMins < 1) return 'Just now';
+    if (diffMins < 60) return `${diffMins}m ago`;
+    if (diffHours < 24) return `${diffHours}h ago`;
+    if (diffDays < 7) return `${diffDays}d ago`;
+    
+    return date.toLocaleDateString() + ' ' + date.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
 }
 
 function formatFileSize(bytes) {

@@ -13,6 +13,7 @@
             <h1>🎬 SRTGEN</h1>
             <p>Automatic Subtitle Generator</p>
             <button id="settingsToggle" class="settings-icon" title="Settings">⚙️</button>
+            <button id="historyToggle" class="history-icon" title="Job History">📋</button>
         </header>
 
         <!-- Settings Modal -->
@@ -34,6 +35,20 @@
                     </select>
                 </div>
                 <button id="saveSettingsBtn" class="btn btn-primary">Save Settings</button>
+            </div>
+        </div>
+
+        <!-- History Modal -->
+        <div id="historyModal" class="modal" style="display: none;">
+            <div class="modal-content modal-large">
+                <span class="modal-close" id="closeHistory">&times;</span>
+                <h2>📋 Job History</h2>
+                <div class="history-header">
+                    <button id="clearHistoryBtn" class="btn btn-danger">Clear History</button>
+                </div>
+                <div id="historyList" class="history-list">
+                    <p class="text-muted">No history available</p>
+                </div>
             </div>
         </div>
 
