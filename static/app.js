@@ -79,15 +79,25 @@ function loadSettings() {
     const translationModel = localStorage.getItem('translationModel') || 'nllb-200-1.3B';
     
     document.getElementById('defaultLanguage').value = defaultLang;
-    document.getElementById('whisperModel').value = whisperModel;
-    document.getElementById('translationModel').value = translationModel;
+    
+    // Only set these if elements exist (not in current UI but stored in localStorage)
+    const whisperModelEl = document.getElementById('whisperModel');
+    const translationModelEl = document.getElementById('translationModel');
+    
+    if (whisperModelEl) whisperModelEl.value = whisperModel;
+    if (translationModelEl) translationModelEl.value = translationModel;
+    
     document.getElementById('language').value = defaultLang;
 }
 
 function saveSettings() {
     const defaultLang = document.getElementById('defaultLanguage').value;
-    const whisperModel = document.getElementById('whisperModel').value;
-    const translationModel = document.getElementById('translationModel').value;
+    
+    // Get whisper and translation model if elements exist
+    const whisperModelEl = document.getElementById('whisperModel');
+    const translationModelEl = document.getElementById('translationModel');
+    const whisperModel = whisperModelEl ? whisperModelEl.value : (localStorage.getItem('whisperModel') || 'medium');
+    const translationModel = translationModelEl ? translationModelEl.value : (localStorage.getItem('translationModel') || 'nllb-200-1.3B');
     
     localStorage.setItem('defaultLanguage', defaultLang);
     localStorage.setItem('whisperModel', whisperModel);
@@ -185,7 +195,7 @@ async function loadFiles(path) {
         
         // Check if folder has subfolders and video files
         hasSubfolders = data.items.some(item => item.type === 'directory');
-        const hasVideos = data.items.some(item => item.type === 'file');
+        const hasVideos = data.items.some(item => item.type === 'video');
         
         // Enable folder button if we're in a directory AND (has videos OR has subfolders)
         const folderBtn = document.getElementById('selectFolderBtn');
@@ -298,7 +308,7 @@ async function selectCurrentFolder() {
     // Always show subfolder checkbox when button is clicked, auto-check if no direct videos
     const subfolderLabel = document.getElementById('subfolderLabel');
     const subfolderCheckbox = document.getElementById('includeSubfolders');
-    const hasDirectVideos = allFiles.some(f => f.type === 'file');
+    const hasDirectVideos = allFiles.some(f => f.type === 'video');
     
     // If no direct video files, automatically enable recursive and show checkbox
     if (!hasDirectVideos && hasSubfolders) {
@@ -336,7 +346,7 @@ async function selectCurrentFolder() {
         
         // Hide subfolders in file browser if recursive mode
         if (includeSubfolders) {
-            const filteredFiles = allFiles.filter(f => f.type === 'file');
+            const filteredFiles = allFiles.filter(f => f.type === 'video');
             renderFiles(filteredFiles);
         } else {
             renderFiles(allFiles);
