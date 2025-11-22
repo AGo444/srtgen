@@ -18,11 +18,14 @@ import chardet
 app = Flask(__name__)
 app.config['MEDIA_FOLDER'] = os.environ.get('MEDIA_FOLDER', '/media')
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024 * 1024  # 16GB max file size
+app.config['MAX_CONCURRENT_JOBS'] = int(os.environ.get('MAX_CONCURRENT_JOBS', '2'))
 
 # Store active transcription jobs
 jobs = {}
 job_counter = 0
 job_cancel_flags = {}
+active_threads = 0
+active_threads_lock = threading.Lock()
 
 
 def detect_language(text):
@@ -188,6 +191,15 @@ def transcribe():
                 'message': 'Enable "Overwrite existing SRT files" to continue'
             }), 409
     
+    # Check concurrent job limit
+    with active_threads_lock:
+        running_jobs = sum(1 for j in jobs.values() if j['status'] == 'running')
+        if running_jobs >= app.config['MAX_CONCURRENT_JOBS']:
+            return jsonify({
+                'error': f'Maximum concurrent jobs ({app.config["MAX_CONCURRENT_JOBS"]}) reached',
+                'message': 'Please wait for current jobs to complete'
+            }), 429
+    
     # Create job
     job_id = job_counter
     job_counter += 1
@@ -197,7 +209,7 @@ def transcribe():
         'file': file_path,
         'language': language,
         'status': 'pending',
-        'status_message': 'Starting...',
+        'status_message': 'Waiting for available slot...',
         'progress': 0,
         'started': datetime.now().isoformat()
     }
@@ -213,6 +225,21 @@ def transcribe():
 
 def run_transcription(job_id, file_path, language):
     """Run transcription in background"""
+    global active_threads
+    
+    # Wait for available slot
+    while True:
+        with active_threads_lock:
+            if active_threads < app.config['MAX_CONCURRENT_JOBS']:
+                active_threads += 1
+                break
+        # Check if cancelled while waiting
+        if job_cancel_flags.get(job_id, False):
+            jobs[job_id]['status'] = 'cancelled'
+            jobs[job_id]['status_message'] = 'Cancelled while waiting'
+            return
+        threading.Event().wait(1)  # Wait 1 second before checking again
+    
     # Import modules fresh
     import sys
     import importlib
@@ -224,6 +251,7 @@ def run_transcription(job_id, file_path, language):
     import mkv_transcribe
     
     jobs[job_id]['status'] = 'running'
+    jobs[job_id]['status_message'] = 'Starting transcription...'
     job_cancel_flags[job_id] = False
     
     try:
@@ -326,6 +354,10 @@ def run_transcription(job_id, file_path, language):
         jobs[job_id]['error'] = str(e)
         import traceback
         jobs[job_id]['traceback'] = traceback.format_exc()
+    finally:
+        # Release thread slot
+        with active_threads_lock:
+            active_threads -= 1
 
 
 @app.route('/api/jobs/<int:job_id>')
