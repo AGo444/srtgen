@@ -19,6 +19,7 @@ app = Flask(__name__)
 app.config['MEDIA_FOLDER'] = os.environ.get('MEDIA_FOLDER', '/media')
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024 * 1024  # 16GB max file size
 app.config['MAX_CONCURRENT_JOBS'] = int(os.environ.get('MAX_CONCURRENT_JOBS', '2'))
+app.config['JOBS_FILE'] = '/output/jobs_queue.json'
 
 # Store active transcription jobs
 jobs = {}
@@ -26,6 +27,78 @@ job_counter = 0
 job_cancel_flags = {}
 active_threads = 0
 active_threads_lock = threading.Lock()
+
+
+def save_jobs_to_disk():
+    """Save pending/running jobs to disk for restart recovery"""
+    try:
+        # Only save pending and running jobs
+        jobs_to_save = {
+            job_id: {
+                'id': job['id'],
+                'file': job['file'],
+                'language': job['language'],
+                'status': job['status'],
+                'progress': job.get('progress', 0),
+                'started': job.get('started'),
+            }
+            for job_id, job in jobs.items()
+            if job['status'] in ['pending', 'running']
+        }
+        
+        os.makedirs(os.path.dirname(app.config['JOBS_FILE']), exist_ok=True)
+        with open(app.config['JOBS_FILE'], 'w') as f:
+            json.dump({
+                'jobs': jobs_to_save,
+                'job_counter': job_counter
+            }, f, indent=2)
+    except Exception as e:
+        print(f"Failed to save jobs to disk: {e}")
+
+
+def load_jobs_from_disk():
+    """Load jobs from disk and restart pending/running jobs"""
+    global jobs, job_counter
+    
+    try:
+        if not os.path.exists(app.config['JOBS_FILE']):
+            return
+        
+        with open(app.config['JOBS_FILE'], 'r') as f:
+            data = json.load(f)
+        
+        job_counter = data.get('job_counter', 0)
+        saved_jobs = data.get('jobs', {})
+        
+        # Restore jobs
+        for job_id_str, job_data in saved_jobs.items():
+            job_id = int(job_id_str)
+            
+            # Reset running jobs to pending (will be restarted)
+            if job_data['status'] == 'running':
+                job_data['status'] = 'pending'
+                job_data['progress'] = 0
+            
+            job_data['status_message'] = 'Recovered from restart - queued...'
+            jobs[job_id] = job_data
+            
+            # Restart job thread
+            full_path = os.path.join(app.config['MEDIA_FOLDER'], job_data['file'])
+            if os.path.exists(full_path):
+                thread = threading.Thread(
+                    target=run_transcription, 
+                    args=(job_id, full_path, job_data['language'])
+                )
+                thread.daemon = True
+                thread.start()
+            else:
+                jobs[job_id]['status'] = 'failed'
+                jobs[job_id]['error'] = 'File not found after restart'
+        
+        print(f"Recovered {len(saved_jobs)} jobs from disk")
+        
+    except Exception as e:
+        print(f"Failed to load jobs from disk: {e}")
 
 
 def detect_language(text):
@@ -214,6 +287,9 @@ def transcribe():
     thread.daemon = True
     thread.start()
     
+    # Save jobs to disk
+    save_jobs_to_disk()
+    
     return jsonify({'job_id': job_id})
 
 
@@ -363,6 +439,9 @@ def run_transcription(job_id, file_path, language):
         # Release thread slot
         with active_threads_lock:
             active_threads -= 1
+        
+        # Save updated job state to disk
+        save_jobs_to_disk()
 
 
 @app.route('/api/jobs/<int:job_id>')
@@ -395,6 +474,9 @@ def cancel_job(job_id):
     jobs[job_id]['status'] = 'cancelled'
     jobs[job_id]['status_message'] = 'Cancelled'
     
+    # Save updated state
+    save_jobs_to_disk()
+    
     return jsonify({'success': True})
 
 
@@ -405,4 +487,7 @@ def list_jobs():
 
 
 if __name__ == '__main__':
+    # Load saved jobs on startup
+    load_jobs_from_disk()
+    
     app.run(host='0.0.0.0', port=5000, debug=False)
