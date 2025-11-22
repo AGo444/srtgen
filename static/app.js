@@ -79,15 +79,25 @@ function loadSettings() {
     const translationModel = localStorage.getItem('translationModel') || 'nllb-200-1.3B';
     
     document.getElementById('defaultLanguage').value = defaultLang;
-    document.getElementById('whisperModel').value = whisperModel;
-    document.getElementById('translationModel').value = translationModel;
+    
+    // Only set these if elements exist (not in current UI but stored in localStorage)
+    const whisperModelEl = document.getElementById('whisperModel');
+    const translationModelEl = document.getElementById('translationModel');
+    
+    if (whisperModelEl) whisperModelEl.value = whisperModel;
+    if (translationModelEl) translationModelEl.value = translationModel;
+    
     document.getElementById('language').value = defaultLang;
 }
 
 function saveSettings() {
     const defaultLang = document.getElementById('defaultLanguage').value;
-    const whisperModel = document.getElementById('whisperModel').value;
-    const translationModel = document.getElementById('translationModel').value;
+    
+    // Get whisper and translation model if elements exist
+    const whisperModelEl = document.getElementById('whisperModel');
+    const translationModelEl = document.getElementById('translationModel');
+    const whisperModel = whisperModelEl ? whisperModelEl.value : (localStorage.getItem('whisperModel') || 'medium');
+    const translationModel = translationModelEl ? translationModelEl.value : (localStorage.getItem('translationModel') || 'nllb-200-1.3B');
     
     localStorage.setItem('defaultLanguage', defaultLang);
     localStorage.setItem('whisperModel', whisperModel);
