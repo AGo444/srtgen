@@ -185,7 +185,7 @@ async function loadFiles(path) {
         
         // Check if folder has subfolders and video files
         hasSubfolders = data.items.some(item => item.type === 'directory');
-        const hasVideos = data.items.some(item => item.type === 'file');
+        const hasVideos = data.items.some(item => item.type === 'video');
         
         // Enable folder button if we're in a directory AND (has videos OR has subfolders)
         const folderBtn = document.getElementById('selectFolderBtn');
@@ -298,7 +298,7 @@ async function selectCurrentFolder() {
     // Always show subfolder checkbox when button is clicked, auto-check if no direct videos
     const subfolderLabel = document.getElementById('subfolderLabel');
     const subfolderCheckbox = document.getElementById('includeSubfolders');
-    const hasDirectVideos = allFiles.some(f => f.type === 'file');
+    const hasDirectVideos = allFiles.some(f => f.type === 'video');
     
     // If no direct video files, automatically enable recursive and show checkbox
     if (!hasDirectVideos && hasSubfolders) {
@@ -336,7 +336,7 @@ async function selectCurrentFolder() {
         
         // Hide subfolders in file browser if recursive mode
         if (includeSubfolders) {
-            const filteredFiles = allFiles.filter(f => f.type === 'file');
+            const filteredFiles = allFiles.filter(f => f.type === 'video');
             renderFiles(filteredFiles);
         } else {
             renderFiles(allFiles);
