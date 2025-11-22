@@ -75,13 +75,23 @@ function closeSettings() {
 
 function loadSettings() {
     const defaultLang = localStorage.getItem('defaultLanguage') || 'nl-NL';
+    const whisperModel = localStorage.getItem('whisperModel') || 'medium';
+    const translationModel = localStorage.getItem('translationModel') || 'nllb-200-1.3B';
+    
     document.getElementById('defaultLanguage').value = defaultLang;
+    document.getElementById('whisperModel').value = whisperModel;
+    document.getElementById('translationModel').value = translationModel;
     document.getElementById('language').value = defaultLang;
 }
 
 function saveSettings() {
     const defaultLang = document.getElementById('defaultLanguage').value;
+    const whisperModel = document.getElementById('whisperModel').value;
+    const translationModel = document.getElementById('translationModel').value;
+    
     localStorage.setItem('defaultLanguage', defaultLang);
+    localStorage.setItem('whisperModel', whisperModel);
+    localStorage.setItem('translationModel', translationModel);
     document.getElementById('language').value = defaultLang;
     
     // Visual feedback
@@ -92,6 +102,60 @@ function saveSettings() {
         btn.textContent = originalText;
         closeSettings();
     }, 1000);
+}
+
+async function addSelectedToQueue() {
+    if (!isFolderMode || selectedFolderFiles.length === 0) return;
+    
+    const language = document.getElementById('language').value;
+    const overwrite = document.getElementById('overwrite').checked;
+    const whisperModel = localStorage.getItem('whisperModel') || 'medium';
+    const translationModel = localStorage.getItem('translationModel') || 'nllb-200-1.3B';
+    
+    // Filter out excluded files
+    const filesToProcess = selectedFolderFiles
+        .filter(f => !excludedFiles.has(f.path))
+        .map(f => f.path);
+    
+    if (filesToProcess.length === 0) {
+        alert('No files selected for processing');
+        return;
+    }
+    
+    try {
+        const response = await fetch('/api/transcribe/batch', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                files: filesToProcess,
+                language: language,
+                overwrite: overwrite,
+                whisper_model: whisperModel,
+                translation_model: translationModel
+            })
+        });
+        
+        const data = await response.json();
+        
+        if (data.error) {
+            alert('Error: ' + data.error);
+        } else {
+            // Add all jobs to the queue
+            data.jobs.forEach(job => {
+                jobs[job.job_id] = {
+                    id: job.job_id,
+                    file: job.file,
+                    status: 'pending'
+                };
+            });
+            
+            alert(`✓ Added ${data.jobs.length} file(s) to the queue!`);
+            updateJobList();
+            clearFolderSelection();
+        }
+    } catch (error) {
+        alert('Error: ' + error.message);
+    }
 }
 
 async function loadFiles(path) {
@@ -270,6 +334,14 @@ async function selectCurrentFolder() {
         
         selectedFolderFiles = data.files;
         
+        // Hide subfolders in file browser if recursive mode
+        if (includeSubfolders) {
+            const filteredFiles = allFiles.filter(f => f.type === 'file');
+            renderFiles(filteredFiles);
+        } else {
+            renderFiles(allFiles);
+        }
+        
         // Show selected files list
         renderSelectedFilesList();
         
@@ -296,6 +368,15 @@ function renderSelectedFilesList() {
         return;
     }
     
+    const includeSubfolders = document.getElementById('includeSubfolders').checked;
+    
+    // Expand list height if recursive mode
+    if (includeSubfolders) {
+        container.classList.add('expanded');
+    } else {
+        container.classList.remove('expanded');
+    }
+    
     container.style.display = 'block';
     
     const activeCount = selectedFolderFiles.length - excludedFiles.size;
@@ -303,8 +384,14 @@ function renderSelectedFilesList() {
     container.innerHTML = `
         <div class="selected-files-header">
             <h4>📋 Selected Files (${activeCount}/${selectedFolderFiles.length})</h4>
-            <button class="clear-selection" onclick="clearFolderSelection()">✕ Clear</button>
+            <div class="selected-files-actions">
+                <button class="add-to-queue" onclick="addSelectedToQueue()" ${activeCount === 0 ? 'disabled' : ''}>
+                    ➕ Add to Queue
+                </button>
+                <button class="clear-selection" onclick="clearFolderSelection()">✕ Clear</button>
+            </div>
         </div>
+        <div class="selected-files-items">
         ${selectedFolderFiles.map((file, index) => {
             const isExcluded = excludedFiles.has(file.path);
             const srtStatus = file.has_srt ? '✓ Has SRT' : '';
@@ -321,6 +408,7 @@ function renderSelectedFilesList() {
                 </div>
             `;
         }).join('')}
+        </div>
     `;
 }
 
@@ -355,6 +443,9 @@ function clearFolderSelection() {
     document.getElementById('selectedFilesList').style.display = 'none';
     document.getElementById('subfolderLabel').style.display = 'none';
     
+    // Restore full file list including subfolders
+    renderFiles(allFiles);
+    
     const selectedFileDiv = document.getElementById('selectedFile');
     selectedFileDiv.innerHTML = '<div class="no-selection">No file selected</div>';
     
@@ -373,50 +464,16 @@ async function startTranscription() {
     
     try {
         if (isFolderMode) {
-            // Batch process folder with selected files only
-            btn.textContent = 'Adding jobs...';
-            
-            // Filter out excluded files
-            const filesToProcess = selectedFolderFiles
-                .filter(f => !excludedFiles.has(f.path))
-                .map(f => f.path);
-            
-            if (filesToProcess.length === 0) {
-                alert('No files selected for processing');
-                btn.disabled = false;
-                btn.textContent = 'Generate Subtitles';
-                return;
-            }
-            
-            const response = await fetch('/api/transcribe/batch', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({
-                    files: filesToProcess,
-                    language: language,
-                    overwrite: overwrite
-                })
-            });
-            
-            const data = await response.json();
-            
-            if (data.error) {
-                alert('Error: ' + data.error);
-            } else {
-                // Add all jobs to the queue
-                data.jobs.forEach(job => {
-                    jobs[job.job_id] = {
-                        id: job.job_id,
-                        file: job.file,
-                        status: 'pending'
-                    };
-                });
-                
-                alert(`Added ${data.jobs.length} file(s) to the queue!`);
-                updateJobList();
-            }
+            // Use add to queue button for folder mode
+            alert('Please use the "➕ Add to Queue" button in the selected files list');
+            btn.disabled = false;
+            btn.textContent = 'Generate Subtitles';
+            return;
         } else {
+            
             // Single file transcription
+            const whisperModel = localStorage.getItem('whisperModel') || 'medium';
+            const translationModel = localStorage.getItem('translationModel') || 'nllb-200-1.3B';
             btn.textContent = 'Starting...';
             
             const response = await fetch('/api/transcribe', {
@@ -425,7 +482,9 @@ async function startTranscription() {
                 body: JSON.stringify({
                     path: selectedFile.path,
                     language: language,
-                    overwrite: overwrite
+                    overwrite: overwrite,
+                    whisper_model: whisperModel,
+                    translation_model: translationModel
                 })
             });
             

@@ -194,24 +194,59 @@ header p {
     background: var(--bg-tertiary);
     border: 2px solid var(--primary);
     border-radius: 8px;
-    padding: 12px;
+    padding: 0;
     max-height: 300px;
     overflow-y: auto;
+    position: relative;
+}
+
+.selected-files-list.expanded {
+    max-height: 500px;
 }
 
 .selected-files-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 10px;
+    padding: 12px;
     padding-bottom: 8px;
     border-bottom: 1px solid var(--border);
+    background: var(--bg-tertiary);
+    position: sticky;
+    top: 0;
+    z-index: 10;
 }
 
 .selected-files-header h4 {
     margin: 0;
     color: var(--primary);
     font-size: 0.95rem;
+}
+
+.selected-files-actions {
+    display: flex;
+    gap: 8px;
+}
+
+.add-to-queue {
+    background: var(--success);
+    color: white;
+    border: none;
+    padding: 4px 12px;
+    border-radius: 4px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.add-to-queue:hover {
+    background: #059669;
+}
+
+.add-to-queue:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
 }
 
 .clear-selection {
@@ -227,6 +262,10 @@ header p {
 
 .clear-selection:hover {
     background: #dc2626;
+}
+
+.selected-files-items {
+    padding: 12px;
 }
 
 .selected-file-item {

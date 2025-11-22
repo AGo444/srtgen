@@ -130,24 +130,26 @@ NLLB_LANG_MAP = {
 
 _nllb_model = None
 _nllb_tokenizer = None
+_nllb_model_name = None
 
-def get_nllb_model():
+def get_nllb_model(model_name="facebook/nllb-200-1.3B"):
     """Load NLLB model once and cache it."""
-    global _nllb_model, _nllb_tokenizer
+    global _nllb_model, _nllb_tokenizer, _nllb_model_name
     
-    if _nllb_model is None:
+    # Reload if different model requested
+    if _nllb_model is None or _nllb_model_name != model_name:
         device = "cuda" if torch.cuda.is_available() else "cpu"
-        print(f"Loading NLLB-200-1.3B translation model on {device}...")
-        model_name = "facebook/nllb-200-1.3B"
+        print(f"Loading {model_name} translation model on {device}...")
         
         _nllb_tokenizer = AutoTokenizer.from_pretrained(model_name)
         _nllb_model = AutoModelForSeq2SeqLM.from_pretrained(model_name).to(device)
-        print("✓ NLLB-1.3B model loaded")
+        _nllb_model_name = model_name
+        print(f"✓ {model_name} model loaded")
     
     return _nllb_model, _nllb_tokenizer
 
 
-def translate_text_nllb(text: str, source_lang: str, target_lang: str) -> str:
+def translate_text_nllb(text: str, source_lang: str, target_lang: str, model_name="facebook/nllb-200-1.3B") -> str:
     """Translate text using NLLB-200 model."""
     if not text or not text.strip():
         return text
@@ -156,7 +158,7 @@ def translate_text_nllb(text: str, source_lang: str, target_lang: str) -> str:
     src_code = NLLB_LANG_MAP.get(source_lang, 'eng_Latn')
     tgt_code = NLLB_LANG_MAP.get(target_lang, 'nld_Latn')
     
-    model, tokenizer = get_nllb_model()
+    model, tokenizer = get_nllb_model(model_name)
     device = "cuda" if torch.cuda.is_available() else "cpu"
     
     # Tokenize
@@ -183,9 +185,9 @@ def translate_text_nllb(text: str, source_lang: str, target_lang: str) -> str:
     return translation
 
 
-def translate_srt_content(srt_path: str, source_lang: str, target_lang: str) -> list:
+def translate_srt_content(srt_path: str, source_lang: str, target_lang: str, model_name="facebook/nllb-200-1.3B") -> list:
     """Translate SRT file content using NLLB with batching for better context."""
-    print(f"Translating subtitles from {source_lang} to {target_lang} (batch mode for better context)...")
+    print(f"Translating subtitles from {source_lang} to {target_lang} with {model_name} (batch mode for better context)...")
     
     with open(srt_path, 'r', encoding='utf-8') as f:
         content = f.read()
@@ -213,14 +215,14 @@ def translate_srt_content(srt_path: str, source_lang: str, target_lang: str) -> 
         if batch_texts:
             # Combine batch for context-aware translation
             combined_text = ' | '.join(batch_texts)  # Use separator for subtitle boundaries
-            translated_combined = translate_text_nllb(combined_text, source_lang, target_lang)
+            translated_combined = translate_text_nllb(combined_text, source_lang, target_lang, model_name)
             
             # Split back
             translated_parts = translated_combined.split(' | ')
             
             # If splitting didn't work perfectly, fall back to individual translation
             if len(translated_parts) != len(batch_texts):
-                translated_parts = [translate_text_nllb(text, source_lang, target_lang) for text in batch_texts]
+                translated_parts = [translate_text_nllb(text, source_lang, target_lang, model_name) for text in batch_texts]
             
             # Combine with metadata and adjust timestamps
             for meta, translated_text in zip(batch_meta, translated_parts):

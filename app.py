@@ -375,6 +375,8 @@ def transcribe():
     file_path = data.get('path')
     language = data.get('language', 'en-US')
     overwrite = data.get('overwrite', True)
+    whisper_model = data.get('whisper_model', os.environ.get('WHISPER_MODEL', 'medium'))
+    translation_model = data.get('translation_model', 'nllb-200-1.3B')
     
     if not file_path:
         return jsonify({'error': 'No file specified'}), 400
@@ -416,11 +418,13 @@ def transcribe():
         'status': 'pending',
         'status_message': f'In queue (position {queue_position})...' if queue_position > 0 else 'Starting...',
         'progress': 0,
-        'started': datetime.now().isoformat()
+        'started': datetime.now().isoformat(),
+        'whisper_model': whisper_model,
+        'translation_model': translation_model
     }
     
     # Start transcription in background
-    thread = threading.Thread(target=run_transcription, args=(job_id, full_path, language))
+    thread = threading.Thread(target=run_transcription, args=(job_id, full_path, language, whisper_model, translation_model))
     thread.daemon = True
     thread.start()
     
@@ -439,6 +443,8 @@ def transcribe_batch():
     file_paths = data.get('files', [])
     language = data.get('language', 'en-US')
     overwrite = data.get('overwrite', True)
+    whisper_model = data.get('whisper_model', os.environ.get('WHISPER_MODEL', 'medium'))
+    translation_model = data.get('translation_model', 'nllb-200-1.3B')
     
     if not file_paths:
         return jsonify({'error': 'No files specified'}), 400
@@ -484,11 +490,13 @@ def transcribe_batch():
             'status': 'pending',
             'status_message': 'In queue...',
             'progress': 0,
-            'started': datetime.now().isoformat()
+            'started': datetime.now().isoformat(),
+            'whisper_model': whisper_model,
+            'translation_model': translation_model
         }
         
         # Start transcription thread
-        thread = threading.Thread(target=run_transcription, args=(job_id, vf['path'], language))
+        thread = threading.Thread(target=run_transcription, args=(job_id, vf['path'], language, whisper_model, translation_model))
         thread.daemon = True
         thread.start()
         
@@ -508,7 +516,7 @@ def transcribe_batch():
 
 
 
-def run_transcription(job_id, file_path, language):
+def run_transcription(job_id, file_path, language, whisper_model='medium', translation_model='nllb-200-1.3B'):
     """Run transcription in background"""
     global active_threads
     
@@ -579,8 +587,8 @@ def run_transcription(job_id, file_path, language):
         # 1. Transcribe in original language (auto-detect)
         jobs[job_id]['progress'] = 30
         jobs[job_id]['status_message'] = 'Transcribing original language...'
-        print("Transcribing in original language...")
-        result_original = mkv_transcribe.transcribe_audio_whisper(audio_path, language=None, model_size=model_size)
+        print(f"Transcribing with Whisper model: {whisper_model}")
+        result_original = mkv_transcribe.transcribe_audio_whisper(audio_path, language=None, model_size=whisper_model)
         detected_lang = result_original.get('language', 'unknown')
         
         srt_original = f"{base_path}.{detected_lang}.srt"
@@ -616,17 +624,20 @@ def run_transcription(job_id, file_path, language):
                 return
             
             jobs[job_id]['progress'] = 75
-            jobs[job_id]['status_message'] = 'Loading NLLB translation model...'
+            jobs[job_id]['status_message'] = f'Loading translation model ({translation_model})...'
             
             jobs[job_id]['progress'] = 80
             jobs[job_id]['status_message'] = f'Translating to {target_lang}...'
-            print(f"Translating to {target_lang} using NLLB...")
+            print(f"Translating to {target_lang} using {translation_model}...")
             
             # Use English SRT as source for better quality
             source_srt = srt_en if detected_lang != 'en' else srt_original
             source_lang = 'en' if detected_lang != 'en' else detected_lang
             
-            translated_segments = mkv_transcribe.translate_srt_content(source_srt, source_lang, target_lang)
+            # Convert model short name to full model path
+            model_path = f"facebook/{translation_model}" if not translation_model.startswith("facebook/") else translation_model
+            
+            translated_segments = mkv_transcribe.translate_srt_content(source_srt, source_lang, target_lang, model_path)
             srt_target = f"{base_path}.{target_lang}.srt"
             mkv_transcribe.save_translated_srt(translated_segments, srt_target)
             generated_files.append(srt_target)
