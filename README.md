@@ -110,6 +110,97 @@ docker exec -it srtgen pip install transformers sentencepiece protobuf sacremose
 6. **Click "Generate Subtitles"**
 7. **Monitor progress** in sidebar
 
+### Command Line Interface (CLI)
+
+Run transcription directly from terminal:
+
+```bash
+# Basic usage (auto-detect language, generates original.srt + en.srt + nl.srt)
+docker exec srtgen python3 /app/mkv_transcribe.py /media/movie.mkv -l nl
+
+# With options
+docker exec srtgen python3 /app/mkv_transcribe.py \
+  /media/movie.mkv \
+  -l fr \
+  --model medium \
+  --overwrite
+
+# Original language only (skip translations)
+docker exec srtgen python3 /app/mkv_transcribe.py \
+  /media/movie.mkv \
+  --original-only
+```
+
+**CLI Options:**
+```
+positional arguments:
+  mkv_file              Path to MKV file
+
+options:
+  -l, --language LANG   Target language code (en, nl, de, fr, etc.)
+  --model MODEL         Whisper model: tiny, base, small, medium, large
+  --overwrite           Overwrite existing SRT files
+  --original-only       Skip EN and target translations
+  --keep-audio          Keep extracted audio file (debug)
+```
+
+### Bazarr Integration
+
+Automatically generate subtitles when Bazarr downloads new episodes/movies.
+
+#### Setup Steps
+
+1. **Copy post-processing script to Bazarr:**
+   ```bash
+   cp /mnt/user/appdata/SRTGEN/bazarr_postprocess.sh /mnt/user/appdata/bazarr/
+   chmod +x /mnt/user/appdata/bazarr/bazarr_postprocess.sh
+   ```
+
+2. **Configure Bazarr:**
+   - Open Bazarr web UI → **Settings** → **General**
+   - Scroll to **Post-Processing**
+   - Enable **Use Custom Post-Processing**
+   - Command: `/config/bazarr_postprocess.sh`
+
+3. **Set environment variables** (optional):
+   ```bash
+   # In Bazarr's docker-compose.yml or Unraid template
+   environment:
+     - SRTGEN_TARGET_LANG=nl    # Default: nl
+     - SRTGEN_MODEL=medium      # Default: base
+     - SRTGEN_OVERWRITE=false   # Default: false
+   ```
+
+4. **Test:**
+   - Download a subtitle in Bazarr
+   - Check logs: `/tmp/srtgen-bazarr/*.log`
+   - Verify SRT files created next to video
+
+#### How It Works
+
+```
+Bazarr downloads subtitle
+  ↓
+Triggers post-processing script
+  ↓
+Detects video file path (Sonarr/Radarr)
+  ↓
+Calls SRTGEN CLI via docker exec
+  ↓
+Generates: original.srt + en.srt + target.srt
+  ↓
+Bazarr sees new SRT files
+```
+
+**Supported:**
+- ✅ Sonarr episodes
+- ✅ Radarr movies
+- ✅ MKV files only
+- ✅ Automatic language detection
+- ✅ Configurable model and target language
+
+**Logs location:** `/tmp/srtgen-bazarr/bazarr_YYYYMMDD_HHMMSS.log`
+
 ### Output Files
 
 For `movie.mkv`, generates:

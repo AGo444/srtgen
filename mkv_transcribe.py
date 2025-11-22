@@ -343,10 +343,13 @@ def generate_srt_from_whisper(result: dict, output_path: str):
 def main():
     parser = argparse.ArgumentParser(description='Transcribe MKV to SRT using Whisper AI')
     parser.add_argument('mkv_file', help='Path to MKV file')
-    parser.add_argument('-o', '--output', help='Output SRT file')
-    parser.add_argument('-l', '--language', help='Language code (e.g., en, nl, de)')
-    parser.add_argument('--keep-audio', action='store_true', help='Keep extracted audio')
-    parser.add_argument('--model', default='base', choices=['tiny', 'base', 'small', 'medium', 'large'])
+    parser.add_argument('-l', '--language', help='Target language code (e.g., en, nl, de) for translation')
+    parser.add_argument('--model', default='base', choices=['tiny', 'base', 'small', 'medium', 'large'], 
+                        help='Whisper model size (default: base)')
+    parser.add_argument('--keep-audio', action='store_true', help='Keep extracted audio file')
+    parser.add_argument('--overwrite', action='store_true', help='Overwrite existing SRT files')
+    parser.add_argument('--original-only', action='store_true', 
+                        help='Only create original language SRT (skip EN and target translations)')
     
     args = parser.parse_args()
     
@@ -354,16 +357,71 @@ def main():
         print(f"Error: File not found: {args.mkv_file}")
         sys.exit(1)
     
-    audio_path = extract_audio_from_mkv(args.mkv_file)
+    # Setup output paths
+    mkv_path = Path(args.mkv_file)
+    base_name = mkv_path.stem
+    output_dir = mkv_path.parent
+    
+    # Check for existing files
+    original_srt = output_dir / f"{base_name}.srt"
+    en_srt = output_dir / f"{base_name}.en.srt"
+    target_srt = output_dir / f"{base_name}.{args.language}.srt" if args.language else None
+    
+    if not args.overwrite:
+        existing = []
+        if original_srt.exists():
+            existing.append(str(original_srt))
+        if not args.original_only and en_srt.exists():
+            existing.append(str(en_srt))
+        if not args.original_only and target_srt and target_srt.exists():
+            existing.append(str(target_srt))
+        
+        if existing:
+            print(f"Error: Files already exist (use --overwrite to replace):")
+            for f in existing:
+                print(f"  - {f}")
+            sys.exit(1)
+    
+    # Extract audio
+    audio_path = extract_audio_from_mkv(str(mkv_path))
     
     try:
-        result = transcribe_audio_whisper(audio_path, language=args.language, model_size=args.model)
-        output_file = args.output or str(Path(args.mkv_file).with_suffix('.srt'))
-        generate_srt_from_whisper(result, output_file)
+        # Step 1: Transcribe in original language
+        print("\n=== Step 1: Original transcription ===")
+        result = transcribe_audio_whisper(audio_path, language=None, model_size=args.model)
+        detected_lang = result.get('language', 'unknown')
+        print(f"✓ Detected language: {detected_lang}")
         
-        print(f"\n✓ SRT saved: {output_file}")
-        print(f"✓ Segments: {len(result['segments'])}")
-        print(f"✓ Language: {result.get('language', 'unknown')}")
+        generate_srt_from_whisper(result, str(original_srt))
+        print(f"✓ Original SRT saved: {original_srt}")
+        
+        if args.original_only:
+            print("\n✓ Original-only mode - skipping translations")
+            return
+        
+        # Step 2: English translation (using Whisper)
+        print("\n=== Step 2: English translation ===")
+        if detected_lang == 'en':
+            print("Already in English - copying original SRT")
+            import shutil
+            shutil.copy(str(original_srt), str(en_srt))
+        else:
+            en_result = translate_audio_whisper(audio_path, 'en', model_size=args.model)
+            generate_srt_from_whisper(en_result, str(en_srt))
+        print(f"✓ English SRT saved: {en_srt}")
+        
+        # Step 3: Target language translation (using NLLB)
+        if args.language and args.language != detected_lang and args.language != 'en':
+            print(f"\n=== Step 3: {args.language.upper()} translation (NLLB) ===")
+            translated_segments = translate_srt_content(str(en_srt), 'en', args.language)
+            save_translated_srt(translated_segments, str(target_srt))
+            print(f"✓ {args.language.upper()} SRT saved: {target_srt}")
+        elif args.language == detected_lang:
+            print(f"\n=== Step 3: Target language same as original - copying ===")
+            import shutil
+            shutil.copy(str(original_srt), str(target_srt))
+        
+        print(f"\n✓ Complete! Generated {len(result['segments'])} subtitle segments")
         
     finally:
         if not args.keep_audio and os.path.exists(audio_path):
