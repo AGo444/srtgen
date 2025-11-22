@@ -1,6 +1,6 @@
 <?xml version="1.0"?>
 <Container version="2">
-  <Name>SRTGEN</Name>
+  <Name>srtgen</Name>
   <Repository>agoddrie/srtgen:latest</Repository>
   <Registry>https://hub.docker.com/r/agoddrie/srtgen</Registry>
   <Network>bridge</Network>
