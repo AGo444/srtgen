@@ -123,9 +123,9 @@ async function loadFiles(path) {
         hasSubfolders = data.items.some(item => item.type === 'directory');
         const hasVideos = data.items.some(item => item.type === 'file');
         
-        // Enable folder button if we're in a directory with videos
+        // Enable folder button if we're in a directory AND (has videos OR has subfolders)
         const folderBtn = document.getElementById('selectFolderBtn');
-        folderBtn.disabled = !path || !hasVideos;
+        folderBtn.disabled = !path || (!hasVideos && !hasSubfolders);
     } catch (error) {
         fileList.innerHTML = `<div class="loading">Error loading files: ${error.message}</div>`;
     }
@@ -231,8 +231,16 @@ async function selectCurrentFolder() {
     selectedFile = null;
     excludedFiles.clear();
     
-    // Show/hide subfolder checkbox based on whether subfolders exist
+    // Always show subfolder checkbox when button is clicked, auto-check if no direct videos
     const subfolderLabel = document.getElementById('subfolderLabel');
+    const subfolderCheckbox = document.getElementById('includeSubfolders');
+    const hasDirectVideos = allFiles.some(f => f.type === 'file');
+    
+    // If no direct video files, automatically enable recursive and show checkbox
+    if (!hasDirectVideos && hasSubfolders) {
+        subfolderCheckbox.checked = true;
+    }
+    
     subfolderLabel.style.display = hasSubfolders ? 'flex' : 'none';
     
     // Clear file selection in file browser
