@@ -1,11 +1,13 @@
 Flask>=3.0.0
 Werkzeug>=3.0.0
+gunicorn>=21.2.0
 ffmpeg-python>=0.2.0
 openai-whisper>=20231117
 torch>=2.0.0
 langdetect>=1.0.9
 chardet>=5.2.0
-transformers>=4.30.0
+transformers>=4.46.0
 sentencepiece>=0.1.99
 protobuf>=3.20.0
 sacremoses>=0.0.53
+ollama>=0.1.0

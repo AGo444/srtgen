@@ -3,38 +3,285 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
     <title>SRTGEN - Subtitle Generator</title>
     <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
-    <link rel="stylesheet" href="/static/style.css">
+    <link rel="stylesheet" href="/static/style.css?v=1763820000">
 </head>
 <body>
     <div class="container">
         <header>
-            <h1>🎬 SRTGEN</h1>
-            <p>Automatic Subtitle Generator</p>
-            <button id="settingsToggle" class="settings-icon" title="Settings">⚙️</button>
-            <button id="historyToggle" class="history-icon" title="Job History">📋</button>
+            <div class="header-title">
+                <h1>🎬 SRTGEN</h1>
+                <p>Automatic Subtitle Generator</p>
+            </div>
+            <div class="header-actions">
+                <button id="helpToggle" class="help-icon" title="Help">❓</button>
+                <button id="historyToggle" class="history-icon" title="Job History">📋</button>
+                <button id="settingsToggle" class="settings-icon" title="Settings">⚙️</button>
+            </div>
         </header>
+
+        <!-- Help Modal -->
+        <div id="helpModal" class="modal" style="display: none;">
+            <div class="modal-content modal-large">
+                <span class="modal-close" id="closeHelp">&times;</span>
+                <h2>❓ Help & Documentation</h2>
+                
+                <div class="help-section">
+                    <h3>🎬 Transcription Workflow</h3>
+                    <p><strong>Basic usage:</strong> Select a video file (MKV) → choose language → click "Generate Subtitles"</p>
+                    <ul>
+                        <li><strong>Whisper model</strong> listens to audio and creates English subtitles</li>
+                        <li><strong>Translation model</strong> translates English to your language (e.g. Dutch)</li>
+                        <li>Result: two .srt files (English + translation)</li>
+                    </ul>
+                </div>
+
+                <div class="help-section">
+                    <h3>🌍 Translation Methods</h3>
+                    <p><strong>Whisper</strong> (default - audio-based)</p>
+                    <ul>
+                        <li>Transcribes audio directly to target language</li>
+                        <li>Best timing and synchronization</li>
+                        <li>Highest GPU memory usage</li>
+                        <li>Always works, no English SRT needed</li>
+                    </ul>
+                    
+                    <p><strong>NLLB only</strong> (text-based - requires English SRT)</p>
+                    <ul>
+                        <li>Translates existing English SRT to target language</li>
+                        <li>Faster and less GPU memory</li>
+                        <li>Only works if English SRT already exists</li>
+                        <li>Automatically falls back to Whisper if English SRT missing</li>
+                    </ul>
+                    
+                    <p><strong>NLLB+Whisper hybrid</strong> (requires English SRT)</p>
+                    <ul>
+                        <li>NLLB translation + Whisper word timestamps</li>
+                        <li>Best translation with good timing</li>
+                        <li>Requires English SRT + extra Whisper run</li>
+                        <li>Balance between quality and speed</li>
+                    </ul>
+                    
+                    <p><strong>NLLB+LLM natural</strong> (requires English SRT + Ollama) ✨ NEW</p>
+                    <ul>
+                        <li>NLLB translation refined by AI (Ollama LLM)</li>
+                        <li>Most natural, conversational subtitles</li>
+                        <li>Fixes literal translations to idiomatic expressions</li>
+                        <li>Configure endpoint, model, and temperature in Settings</li>
+                        <li>Requires Ollama running (default: qwen2.5:7b)</li>
+                    </ul>
+                </div>
+
+                <div class="help-section">
+                    <h3>📝 SRT File Translation</h3>
+                    <p>To directly translate existing .srt files:</p>
+                    <ul>
+                        <li>Enable <strong>"Enable SRT translation mode"</strong> in Settings</li>
+                        <li>Select a .srt file in the file browser</li>
+                        <li>Button changes to "🌍 Translate SRT File"</li>
+                        <li>Always uses NLLB (text-based, faster)</li>
+                        <li>No video/audio processing required</li>
+                    </ul>
+                </div>
+
+                <div class="help-section">
+                    <h3>⚙️ Performance Settings</h3>
+                    <p><strong>Chunk Length</strong> (GPU memory optimization)</p>
+                    <ul>
+                        <li><code>15s</code>: Lowest memory usage (beam_size=3)</li>
+                        <li><code>20s</code>: Balanced (beam_size=4)</li>
+                        <li><code>30s</code>: Default (beam_size=5)</li>
+                        <li><code>Full</code>: Fastest but most memory (beam_size=5)</li>
+                    </ul>
+                    
+                    <p><strong>Max Concurrent Jobs</strong></p>
+                    <ul>
+                        <li>Number of videos to process simultaneously</li>
+                        <li>Lower if GPU memory errors (CUDA out of memory)</li>
+                        <li>Default: 2 jobs in parallel</li>
+                    </ul>
+                </div>
+
+                <div class="help-section">
+                    <h3>🎯 Model Choices</h3>
+                    <p><strong>Whisper Models</strong> (transcription quality)</p>
+                    <ul>
+                        <li><code>Tiny</code>: Fastest, least memory, lowest quality</li>
+                        <li><code>Medium</code>: Default, good balance</li>
+                        <li><code>Large</code>: Best quality, slowest, most memory</li>
+                    </ul>
+                    
+                    <p><strong>NLLB Models</strong> (translation quality)</p>
+                    <ul>
+                        <li><code>600M</code>: Fastest, least memory</li>
+                        <li><code>1.3B</code>: Default, best balance (recommended)</li>
+                        <li><code>3.3B</code>: Best quality, slowest</li>
+                    </ul>
+                </div>
+
+                <div class="help-section">
+                    <h3>🔧 Queue Management</h3>
+                    <ul>
+                        <li><strong>Bump button</strong> (🔼): Move pending job to first position</li>
+                        <li>Only available from 3rd job onwards</li>
+                        <li><strong>Cancel button</strong> (❌): Stop and remove job</li>
+                        <li><strong>Clear Queue</strong> (🗑️): Remove all pending jobs</li>
+                    </ul>
+                </div>
+
+                <div class="help-section">
+                    <h3>💡 Tips</h3>
+                    <ul>
+                        <li>Overwrite OFF: skips files with existing SRT (faster on restarts)</li>
+                        <li>First run with new model may be slow (model download)</li>
+                        <li>On GPU errors: lower Chunk Length or Max Concurrent Jobs</li>
+                        <li>NLLB methods only work if English SRT already exists</li>
+                        <li>History filter: view/delete completed/failed/cancelled jobs</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
 
         <!-- Settings Modal -->
         <div id="settingsModal" class="modal" style="display: none;">
             <div class="modal-content">
                 <span class="modal-close" id="closeSettings">&times;</span>
                 <h2>⚙️ Settings</h2>
-                <div class="form-group">
-                    <label for="defaultLanguage">Default Language</label>
-                    <select id="defaultLanguage">
-                        <option value="en-US">English (US)</option>
-                        <option value="en-GB">English (UK)</option>
-                        <option value="nl-NL">Dutch</option>
-                        <option value="de-DE">German</option>
-                        <option value="fr-FR">French</option>
-                        <option value="es-ES">Spanish</option>
-                        <option value="it-IT">Italian</option>
-                        <option value="pt-PT">Portuguese</option>
-                    </select>
+                
+                <div class="settings-grid">
+                    <div class="settings-column">
+                        <h3>Model Settings</h3>
+                        <div class="form-group">
+                            <label for="whisperModel">Whisper Model</label>
+                            <select id="whisperModel">
+                                <option value="tiny">Tiny (fastest)</option>
+                                <option value="base">Base</option>
+                                <option value="small">Small</option>
+                                <option value="medium" selected>Medium</option>
+                                <option value="large">Large (best)</option>
+                            </select>
+                            <small>Transcription quality: tiny=fastest but least accurate, large=best but slowest</small>
+                        </div>
+                        <div class="form-group">
+                            <label for="translationModel">Translation Model</label>
+                            <select id="translationModel">
+                                <option value="nllb-200-distilled-600M">NLLB 600M</option>
+                                <option value="nllb-200-1.3B" selected>NLLB 1.3B</option>
+                                <option value="nllb-200-3.3B">NLLB 3.3B</option>
+                            </select>
+                            <small>Translation quality: 600M=fastest, 3.3B=best (1.3B recommended)</small>
+                        </div>
+                        <div class="form-group">
+                            <label for="translationMethod">Translation Method</label>
+                            <select id="translationMethod">
+                                <option value="whisper" selected>Whisper (audio)</option>
+                                <option value="nllb">NLLB only (text)*</option>
+                                <option value="nllb-whisper">NLLB+Whisper (hybrid)*</option>
+                                <option value="nllb-llm">NLLB+LLM (natural)*</option>
+                            </select>
+                            <div class="help-text">
+                                <strong>Whisper:</strong> Direct audio → target language (always available)<br>
+                                <strong>NLLB:</strong> Translate English SRT → target language (faster, less GPU)<br>
+                                <strong>NLLB+Whisper:</strong> NLLB text + Whisper timing (best balance)<br>
+                                <strong>NLLB+LLM:</strong> NLLB translation refined by local LLM (natural, idiomatic)<br>
+                                * Requires existing English SRT, falls back to Whisper
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label for="ollamaEndpoint">Ollama Endpoint (for NLLB+LLM)</label>
+                            <input type="text" id="ollamaEndpoint" value="http://localhost:11434" placeholder="http://localhost:11434">
+                            <small>URL to your Ollama server (e.g., http://192.168.1.100:11434)</small>
+                        </div>
+                        <div class="form-group">
+                            <label for="ollamaModel">Ollama Model (for NLLB+LLM)</label>
+                            <input type="text" id="ollamaModel" value="qwen2.5:7b" placeholder="qwen2.5:7b">
+                            <small>Model name for refinement (qwen2.5:7b recommended, llama3.1:8b also good)</small>
+                        </div>
+                        <div class="form-group">
+                            <label for="ollamaTemperature">LLM Temperature (creativity)</label>
+                            <input type="number" id="ollamaTemperature" value="0.3" min="0" max="2" step="0.1" placeholder="0.3">
+                            <small>Lower (0.1-0.3) = consistent, Higher (0.5-1.0) = creative. Default: 0.3</small>
+                        </div>
+                        <div class="form-group">
+                            <label for="defaultLanguage">Default Language</label>
+                            <select id="defaultLanguage">
+                                <option value="en-US">English (US)</option>
+                                <option value="en-GB">English (UK)</option>
+                                <option value="nl-NL">Dutch</option>
+                                <option value="de-DE">German</option>
+                                <option value="fr-FR">French</option>
+                                <option value="es-ES">Spanish</option>
+                                <option value="it-IT">Italian</option>
+                                <option value="pt-PT">Portuguese</option>
+                            </select>
+                            <small>Default translation language when starting jobs</small>
+                        </div>
+                    </div>
+                    
+                    <div class="settings-column">
+                        <h3>Performance</h3>
+                        <div class="form-group">
+                            <label for="maxConcurrentJobs">Max Concurrent Jobs</label>
+                            <select id="maxConcurrentJobs">
+                                <option value="1">1 (safe)</option>
+                                <option value="2" selected>2</option>
+                                <option value="3">3</option>
+                                <option value="4">4</option>
+                            </select>
+                            <small>Number of videos to process simultaneously. Lower if GPU memory errors (CUDA out of memory)</small>
+                        </div>
+                        <div class="form-group">
+                            <label for="chunkLength">Chunk Length</label>
+                            <select id="chunkLength">
+                                <option value="15">15s (lowest memory)</option>
+                                <option value="20">20s</option>
+                                <option value="30" selected>30s</option>
+                                <option value="0">Full (fastest)</option>
+                            </select>
+                            <div class="help-text">
+                                GPU memory optimization (beam_size):<br>
+                                15s → beam_size=3 (lowest memory)<br>
+                                30s/Full → beam_size=5 (best quality)<br>
+                                Lower on memory errors, increase for speed
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="settings-column">
+                        <h3>Network</h3>
+                        <div class="form-group">
+                            <label for="downloadSpeedLimit">Model Download Speed Limit</label>
+                            <div style="display: flex; gap: 10px; align-items: center;">
+                                <input type="range" id="downloadSpeedLimit" min="0" max="100" value="50" step="5" style="flex: 1;">
+                                <span id="downloadSpeedValue" style="min-width: 120px; font-weight: bold;">50% (~5 MB/s)</span>
+                            </div>
+                            <div class="help-text">
+                                Download speed for HuggingFace models (NLLB translation models)<br>
+                                0% = slowest (1 MB/s), 100% = fastest (no limit)<br>
+                                Auto-detected: <span id="detectedSpeed">measuring...</span>
+                            </div>
+                        </div>
+                        
+                        <h3 style="margin-top: 20px;">Options</h3>
+                        <div class="form-group">
+                            <label>
+                                <input type="checkbox" id="enableSrtTranslation">
+                                Enable SRT translation mode
+                            </label>
+                            <div class="help-text">
+                                Enable to translate existing .srt files directly<br>
+                                Select .srt file → button becomes "🌍 Translate SRT File"<br>
+                                Uses NLLB (text-based, no video/audio processing)
+                            </div>
+                        </div>
+                    </div>
                 </div>
-                <button id="saveSettingsBtn" class="btn btn-primary">Save Settings</button>
+                
+                <button id="saveSettingsBtn" class="btn btn-primary" style="width: 100%; margin-top: 20px;">Save Settings</button>
             </div>
         </div>
 
@@ -44,7 +291,17 @@
                 <span class="modal-close" id="closeHistory">&times;</span>
                 <h2>📋 Job History</h2>
                 <div class="history-header">
-                    <button id="clearHistoryBtn" class="btn btn-danger">Clear History</button>
+                    <div class="history-filter-row">
+                        <label for="historyStatusFilter">Filter:</label>
+                        <select id="historyStatusFilter">
+                            <option value="all">All</option>
+                            <option value="completed">✓ Completed</option>
+                            <option value="failed">✗ Failed</option>
+                            <option value="cancelled">⊗ Cancelled</option>
+                        </select>
+                        <button id="deleteFilteredBtn" class="btn btn-danger">Delete Filtered</button>
+                        <button id="clearHistoryBtn" class="btn btn-danger">Clear All</button>
+                    </div>
                 </div>
                 <div id="historyList" class="history-list">
                     <p class="text-muted">No history available</p>
@@ -62,6 +319,18 @@
                 
                 <div class="search-box">
                     <input type="text" id="searchInput" placeholder="🔍 Search files..." />
+                </div>
+
+                <div class="filter-controls">
+                    <div class="filter-row">
+                        <select id="srtFilter" class="filter-select">
+                            <option value="all">All Files</option>
+                            <option value="missing">Missing Target SRT</option>
+                        </select>
+                        <button id="addFilteredBtn" class="btn btn-primary" style="display: none; font-size: 0.85rem; padding: 8px 16px; width: auto;">
+                            Add Filtered to Queue
+                        </button>
+                    </div>
                 </div>
 
                 <div class="batch-actions">
@@ -84,13 +353,6 @@
 
             <!-- Sidebar -->
             <aside class="sidebar">
-                <div class="card">
-                    <h3>Selected File/Folder</h3>
-                    <div id="selectedFile" class="no-selection">
-                        No file selected
-                    </div>
-                </div>
-
                 <div class="card">
                     <h3>Transcription Settings</h3>
                     <div class="form-group">
@@ -118,15 +380,47 @@
                 </div>
 
                 <div class="card">
-                    <h3>Active Jobs</h3>
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                        <h3 style="margin: 0;">Active Jobs</h3>
+                        <button id="clearQueueBtn" class="btn btn-warning" style="font-size: 0.7rem; padding: 3px 6px; width: auto; white-space: nowrap;">🗑️</button>
+                    </div>
                     <div id="jobList" class="job-list">
                         <p class="text-muted">No active jobs</p>
                     </div>
                 </div>
+
             </aside>
         </div>
     </div>
 
-    <script src="/static/app.js"></script>
+    <!-- Status Legend Footer -->
+    <div class="status-footer">
+        <div class="legend-item">
+            <div class="legend-indicator status-selected"></div>
+            <span>Selected</span>
+        </div>
+        <div class="legend-item">
+            <div class="legend-indicator status-queued"></div>
+            <span>Queued</span>
+        </div>
+        <div class="legend-item">
+            <div class="legend-indicator status-processing"></div>
+            <span>Processing</span>
+        </div>
+        <div class="legend-item">
+            <div class="legend-indicator status-success"></div>
+            <span>Success</span>
+        </div>
+        <div class="legend-item">
+            <div class="legend-indicator status-error"></div>
+            <span>Error</span>
+        </div>
+        <div class="legend-item">
+            <div class="legend-indicator status-cancelled"></div>
+            <span>Cancelled</span>
+        </div>
+    </div>
+
+    <script src="/static/app.js?v=1763825000"></script>
 </body>
 </html>

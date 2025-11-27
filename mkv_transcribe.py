@@ -12,6 +12,115 @@ from pathlib import Path
 import whisper
 import torch
 from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
+import gc
+import time
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
+import requests
+import ollama
+
+
+# Rate limiter for downloads
+class RateLimitedHTTPAdapter(HTTPAdapter):
+    """HTTP adapter that limits download speed to avoid saturating network."""
+    def __init__(self, max_bytes_per_sec=10*1024*1024, progress_callback=None, *args, **kwargs):
+        self.max_bytes_per_sec = max_bytes_per_sec
+        self.chunk_size = 8192  # 8KB chunks
+        self.progress_callback = progress_callback
+        self.total_downloaded = 0
+        self.start_time = None
+        print(f"🔧 RateLimitedHTTPAdapter initialized: max_bytes_per_sec={max_bytes_per_sec/1024/1024:.1f} MB/s")
+        super().__init__(*args, **kwargs)
+    
+    def send(self, request, stream=False, timeout=None, verify=True, cert=None, proxies=None):
+        print(f"📥 HTTP request: {request.method} {request.url[:100]}...")
+        response = super().send(request, stream=True, timeout=timeout, verify=verify, cert=cert, proxies=proxies)
+        
+        # Only rate limit large downloads (model files)
+        if stream and response.headers.get('content-length'):
+            content_length = int(response.headers['content-length'])
+            print(f"📊 Response size: {content_length/1024/1024:.1f} MB")
+            if content_length > 100 * 1024 * 1024:  # Only rate limit files > 100MB
+                print(f"🚀 Starting rate-limited download: {content_length/1024/1024:.1f} MB")
+                self.total_downloaded = 0
+                self.start_time = time.time()
+                response.raw.read = self._rate_limited_read(response.raw.read, content_length)
+            else:
+                print(f"⚡ Small file, no rate limiting")
+        
+        return response
+    
+    def _rate_limited_read(self, original_read, total_size):
+        """Wrap the read method to add rate limiting and progress tracking."""
+        def wrapped_read(amt=None):
+            start = time.time()
+            data = original_read(amt)
+            
+            if data:
+                self.total_downloaded += len(data)
+                
+                # Progress tracking
+                if self.progress_callback and total_size:
+                    percent = (self.total_downloaded / total_size) * 100
+                    elapsed = time.time() - self.start_time
+                    speed_mbps = (self.total_downloaded * 8 / 1000000) / elapsed if elapsed > 0 else 0
+                    
+                    # Log every 5%
+                    if int(percent) % 5 == 0 and int(percent) != int((self.total_downloaded - len(data)) / total_size * 100):
+                        print(f"📊 Download progress: {percent:.1f}% ({self.total_downloaded/1024/1024:.1f}/{total_size/1024/1024:.1f} MB) @ {speed_mbps:.1f} Mbps")
+                    
+                    # Estimate remaining time
+                    if speed_mbps > 0:
+                        remaining_mb = (total_size - self.total_downloaded) / (1024 * 1024)
+                        eta_seconds = (remaining_mb * 8) / speed_mbps
+                        eta_min = int(eta_seconds // 60)
+                        eta_sec = int(eta_seconds % 60)
+                        self.progress_callback(percent, speed_mbps, f"{eta_min}m {eta_sec}s")
+                
+                # Rate limiting
+                if self.max_bytes_per_sec:
+                    bytes_read = len(data)
+                    expected_time = bytes_read / self.max_bytes_per_sec
+                    elapsed = time.time() - start
+                    sleep_time = expected_time - elapsed
+                    
+                    if sleep_time > 0:
+                        time.sleep(sleep_time)
+            
+            return data
+        return wrapped_read
+
+
+def setup_rate_limited_downloads(max_mbps=10, progress_callback=None):
+    """Setup rate-limited downloads for HuggingFace models."""
+    import huggingface_hub
+    
+    print(f"🔧 Setting up rate-limited downloads: {max_mbps} MB/s")
+    
+    # Create rate-limited session
+    session = requests.Session()
+    
+    # Convert Mbps to bytes per second
+    max_bytes_per_sec = max_mbps * 1024 * 1024
+    print(f"🔧 Max bytes per second: {max_bytes_per_sec:,}")
+    
+    adapter = RateLimitedHTTPAdapter(
+        max_bytes_per_sec=max_bytes_per_sec,
+        progress_callback=progress_callback,
+        max_retries=Retry(total=3, backoff_factor=0.5)
+    )
+    
+    session.mount('http://', adapter)
+    session.mount('https://', adapter)
+    print(f"🔧 Session adapters mounted for http:// and https://")
+    
+    # Monkey patch the HuggingFace hub to use our session
+    huggingface_hub.file_download._CACHED_NO_EXIST = {}  # Clear cache
+    huggingface_hub.constants.HF_HUB_DOWNLOAD_TIMEOUT = 300  # 5 min timeout
+    
+    print(f"📊 Download rate limited to {max_mbps} MB/s to preserve network bandwidth")
+    
+    return session
 
 
 def extract_audio_from_mkv(mkv_path: str, output_audio: str = None) -> str:
@@ -51,7 +160,7 @@ def format_srt_time(seconds: float) -> str:
     return f"{hours:02d}:{minutes:02d}:{seconds:02d},{milliseconds:03d}"
 
 
-def transcribe_audio_whisper(audio_path: str, language: str = None, model_size: str = "base") -> dict:
+def transcribe_audio_whisper(audio_path: str, language: str = None, model_size: str = "base", chunk_length: int = 30) -> dict:
     """Transcribe audio file using OpenAI Whisper with GPU acceleration."""
     device = "cuda" if torch.cuda.is_available() else "cpu"
     print(f"Using device: {device}")
@@ -61,35 +170,130 @@ def transcribe_audio_whisper(audio_path: str, language: str = None, model_size: 
     print(f"Loading Whisper {model_size} model...")
     model = whisper.load_model(model_size, device=device)
     
-    print(f"Transcribing {audio_path} with word-level timestamps...")
-    result = model.transcribe(
-        audio_path, 
-        language=language, 
-        verbose=True, 
-        word_timestamps=True,  # Enable word-level timestamps for better accuracy
-        condition_on_previous_text=True  # Better context for timing
-    )
-    
-    return result
+    try:
+        # Map chunk_length to beam_size/best_of for memory optimization
+        # Smaller values = less GPU memory, slightly lower quality
+        if chunk_length <= 15:
+            beam_size, best_of = 3, 3  # Lowest memory
+            mode_msg = " (low memory mode)"
+        elif chunk_length <= 20:
+            beam_size, best_of = 4, 4  # Medium memory
+            mode_msg = " (balanced mode)"
+        elif chunk_length <= 30:
+            beam_size, best_of = 5, 5  # Default
+            mode_msg = " (standard mode)"
+        else:  # chunk_length == 0 or > 30
+            beam_size, best_of = 5, 5  # Full quality
+            mode_msg = " (full quality mode)"
+        
+        print(f"Transcribing {audio_path} with word-level timestamps{mode_msg}...")
+        
+        result = model.transcribe(
+            audio_path,
+            language=language,
+            verbose=True,
+            word_timestamps=True,
+            condition_on_previous_text=True,
+            beam_size=beam_size,
+            best_of=best_of,
+            temperature=0.0  # Deterministic for consistency
+        )
+        return result
+    finally:
+        # AGGRESSIVE GPU memory cleanup
+        print("🧹 Cleaning up Whisper model...")
+        del model
+        
+        # Multiple garbage collection passes
+        for _ in range(5):
+            gc.collect()
+        
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            torch.cuda.synchronize()
+            
+            # Reset memory stats
+            torch.cuda.reset_peak_memory_stats()
+            torch.cuda.reset_accumulated_memory_stats()
+            
+            try:
+                torch.cuda.ipc_collect()
+            except:
+                pass
+            
+            # Empty cache again
+            torch.cuda.empty_cache()
+            torch.cuda.synchronize()
+            
+            allocated = torch.cuda.memory_allocated() / (1024**3)
+            reserved = torch.cuda.memory_reserved() / (1024**3)
+            print(f"🧹 GPU after cleanup: {allocated:.2f}GB allocated, {reserved:.2f}GB reserved")
 
 
-def translate_audio_whisper(audio_path: str, target_language: str, model_size: str = "base") -> dict:
+def translate_audio_whisper(audio_path: str, target_language: str, model_size: str = "base", chunk_length: int = 30) -> dict:
     """Translate audio to target language using Whisper."""
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    print(f"Translating to {target_language} with word-level timestamps...")
+    
+    # Map chunk_length to beam_size/best_of for memory optimization
+    if chunk_length <= 15:
+        beam_size, best_of = 3, 3
+        mode_msg = " (low memory mode)"
+    elif chunk_length <= 20:
+        beam_size, best_of = 4, 4
+        mode_msg = " (balanced mode)"
+    elif chunk_length <= 30:
+        beam_size, best_of = 5, 5
+        mode_msg = " (standard mode)"
+    else:
+        beam_size, best_of = 5, 5
+        mode_msg = " (full quality mode)"
+    
+    print(f"Translating to {target_language} with word-level timestamps{mode_msg}...")
     
     model = whisper.load_model(model_size, device=device)
     
-    # Whisper's task='translate' always translates to English
-    result = model.transcribe(
-        audio_path, 
-        task='translate', 
-        verbose=True, 
-        word_timestamps=True,  # Enable word-level timestamps
-        condition_on_previous_text=True  # Better timing accuracy
-    )
-    
-    return result
+    try:
+        # Whisper's task='translate' always translates to English
+        result = model.transcribe(
+            audio_path,
+            task='translate',
+            verbose=True,
+            word_timestamps=True,
+            condition_on_previous_text=True,
+            beam_size=beam_size,
+            best_of=best_of,
+            temperature=0.0
+        )
+        return result
+    finally:
+        # AGGRESSIVE GPU memory cleanup
+        print("🧹 Cleaning up Whisper translation model...")
+        del model
+        
+        # Multiple garbage collection passes
+        for _ in range(5):
+            gc.collect()
+        
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            torch.cuda.synchronize()
+            
+            # Reset memory stats
+            torch.cuda.reset_peak_memory_stats()
+            torch.cuda.reset_accumulated_memory_stats()
+            
+            try:
+                torch.cuda.ipc_collect()
+            except:
+                pass
+            
+            # Empty cache again
+            torch.cuda.empty_cache()
+            torch.cuda.synchronize()
+            
+            allocated = torch.cuda.memory_allocated() / (1024**3)
+            reserved = torch.cuda.memory_reserved() / (1024**3)
+            print(f"🧹 GPU after Whisper cleanup: {allocated:.2f}GB allocated, {reserved:.2f}GB reserved")
 
 
 # NLLB language code mapping
@@ -132,7 +336,7 @@ _nllb_model = None
 _nllb_tokenizer = None
 _nllb_model_name = None
 
-def get_nllb_model(model_name="facebook/nllb-200-1.3B"):
+def get_nllb_model(model_name="facebook/nllb-200-1.3B", progress_callback=None):
     """Load NLLB model once and cache it."""
     global _nllb_model, _nllb_tokenizer, _nllb_model_name
     
@@ -141,12 +345,128 @@ def get_nllb_model(model_name="facebook/nllb-200-1.3B"):
         device = "cuda" if torch.cuda.is_available() else "cpu"
         print(f"Loading {model_name} translation model on {device}...")
         
-        _nllb_tokenizer = AutoTokenizer.from_pretrained(model_name)
+        print("⚠️  Rate limiting DISABLED for testing")
+        
+        print(f"🔧 Loading tokenizer from {model_name}...")
+        
+        # Workaround for HuggingFace transformers bug with dict chat_template
+        # Download tokenizer config and fix it before loading
+        from huggingface_hub import hf_hub_download
+        import json
+        import tempfile
+        import shutil
+        
+        try:
+            # Download original config
+            config_path = hf_hub_download(repo_id=model_name, filename="tokenizer_config.json")
+            print(f"🔧 Downloaded tokenizer config from {model_name}")
+            
+            # Read and fix config
+            with open(config_path, 'r') as f:
+                config = json.load(f)
+            
+            # Check if chat_template is problematic
+            if "chat_template" in config:
+                print(f"🔧 Original chat_template type: {type(config['chat_template'])}")
+                if isinstance(config['chat_template'], dict):
+                    print(f"⚠️  Removing dict chat_template (causes TypeError)")
+                    del config["chat_template"]
+            
+            # Create temp directory with fixed config
+            temp_dir = tempfile.mkdtemp()
+            fixed_config_path = os.path.join(temp_dir, "tokenizer_config.json")
+            with open(fixed_config_path, 'w') as f:
+                json.dump(config, f)
+            
+            # Copy other tokenizer files to temp dir
+            for filename in ["sentencepiece.bpe.model", "tokenizer.json", "special_tokens_map.json"]:
+                try:
+                    src = hf_hub_download(repo_id=model_name, filename=filename)
+                    dst = os.path.join(temp_dir, filename)
+                    shutil.copy(src, dst)
+                except:
+                    pass  # Some files might not exist
+            
+            # Load tokenizer from local directory with fixed config
+            _nllb_tokenizer = AutoTokenizer.from_pretrained(
+                temp_dir,
+                use_fast=False,
+                local_files_only=True
+            )
+            
+            # Cleanup
+            shutil.rmtree(temp_dir)
+            print(f"✓ Tokenizer loaded with fixed config")
+            
+        except Exception as e:
+            print(f"⚠️  Config fix failed: {e}")
+            print(f"Trying direct load...")
+            _nllb_tokenizer = AutoTokenizer.from_pretrained(
+                model_name,
+                use_fast=False
+            )
+            print(f"✓ Tokenizer loaded")
+        
+        print(f"🔧 Loading model from {model_name}...")
+        
+        # Notify progress callback about model download
+        if progress_callback:
+            # Estimate model size for progress display
+            model_sizes = {
+                "facebook/nllb-200-distilled-600M": 600,
+                "facebook/nllb-200-1.3B": 1300,
+                "facebook/nllb-200-3.3B": 6500
+            }
+            size_mb = model_sizes.get(model_name, 1000)
+            progress_callback(10, 0, f"Downloading NLLB model ({size_mb}MB, 10-15 min)")
+        
         _nllb_model = AutoModelForSeq2SeqLM.from_pretrained(model_name).to(device)
         _nllb_model_name = model_name
-        print(f"✓ {model_name} model loaded")
+        
+        if progress_callback:
+            progress_callback(100, 0, "Model loaded")
+        
+        print(f"✓ {model_name} model loaded and moved to {device}")
     
     return _nllb_model, _nllb_tokenizer
+
+
+def clear_nllb_model():
+    """Clear NLLB model from GPU memory with aggressive cleanup."""
+    global _nllb_model, _nllb_tokenizer, _nllb_model_name
+    
+    if _nllb_model is not None:
+        print("🧹 Clearing NLLB model from GPU...")
+        del _nllb_model
+        del _nllb_tokenizer
+        _nllb_model = None
+        _nllb_tokenizer = None
+        _nllb_model_name = None
+        
+        # Multiple garbage collection passes
+        for _ in range(5):
+            gc.collect()
+        
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            torch.cuda.synchronize()
+            
+            # Reset memory stats
+            torch.cuda.reset_peak_memory_stats()
+            torch.cuda.reset_accumulated_memory_stats()
+            
+            try:
+                torch.cuda.ipc_collect()
+            except:
+                pass
+            
+            # Empty cache again
+            torch.cuda.empty_cache()
+            torch.cuda.synchronize()
+            
+            allocated = torch.cuda.memory_allocated() / (1024**3)
+            reserved = torch.cuda.memory_reserved() / (1024**3)
+            print(f"🧹 NLLB cleared - GPU: {allocated:.2f}GB allocated, {reserved:.2f}GB reserved")
 
 
 def translate_text_nllb(text: str, source_lang: str, target_lang: str, model_name="facebook/nllb-200-1.3B") -> str:
@@ -185,9 +505,78 @@ def translate_text_nllb(text: str, source_lang: str, target_lang: str, model_nam
     return translation
 
 
-def translate_srt_content(srt_path: str, source_lang: str, target_lang: str, model_name="facebook/nllb-200-1.3B") -> list:
+def refine_translation_with_llm(text: str, source_lang: str, target_lang: str, ollama_endpoint: str = "http://localhost:11434", ollama_model: str = "qwen2.5:7b", ollama_temperature: float = 0.3) -> str:
+    """Refine machine translation using local LLM to make it more natural and idiomatic."""
+    if not text or not text.strip():
+        return text
+    
+    # Language name mapping for prompts
+    lang_names = {
+        'en': 'English',
+        'nl': 'Dutch',
+        'de': 'German',
+        'fr': 'French',
+        'es': 'Spanish',
+        'it': 'Italian',
+        'pt': 'Portuguese',
+        'pl': 'Polish',
+        'ru': 'Russian',
+        'ja': 'Japanese',
+        'ko': 'Korean',
+        'zh': 'Chinese'
+    }
+    
+    source_name = lang_names.get(source_lang, source_lang.upper())
+    target_name = lang_names.get(target_lang, target_lang.upper())
+    
+    prompt = f"""You are a professional subtitle translator. Your task is to refine machine-translated subtitles to sound natural and idiomatic in {target_name}.
+
+Original {source_name} context: This is from a movie/TV show subtitle.
+Machine translation to {target_name}: {text}
+
+Refine this translation to:
+1. Sound natural and conversational in {target_name}
+2. Use appropriate idioms and expressions
+3. Maintain the same meaning and tone
+4. Keep it concise (suitable for subtitles)
+5. Preserve any names, numbers, or technical terms
+
+Only output the refined {target_name} translation, nothing else."""
+
+    try:
+        # Use Ollama API
+        client = ollama.Client(host=ollama_endpoint)
+        response = client.generate(
+            model=ollama_model,
+            prompt=prompt,
+            options={
+                'temperature': ollama_temperature,
+                'top_p': 0.9,
+                'num_predict': 200  # Limit output length for subtitles
+            }
+        )
+        
+        refined = response['response'].strip()
+        
+        # Fallback to original if LLM output is suspiciously different in length
+        if len(refined) > len(text) * 2 or len(refined) < len(text) * 0.3:
+            print(f"⚠️ LLM output length suspicious, using original: '{text[:50]}...'")
+            return text
+        
+        return refined
+        
+    except Exception as e:
+        print(f"⚠️ LLM refinement failed: {e}, using original translation")
+        return text
+
+
+def translate_srt_content(srt_path: str, source_lang: str, target_lang: str, model_name="facebook/nllb-200-1.3B", clear_model=True, progress_callback=None, use_llm_refinement=False, ollama_endpoint="http://localhost:11434", ollama_model="qwen2.5:7b", ollama_temperature=0.3) -> list:
     """Translate SRT file content using NLLB with batching for better context."""
-    print(f"Translating subtitles from {source_lang} to {target_lang} with {model_name} (batch mode for better context)...")
+    method_desc = "NLLB → LLM refinement" if use_llm_refinement else "NLLB"
+    print(f"Translating subtitles from {source_lang} to {target_lang} with {method_desc} (batch mode for better context)...")
+    
+    # Get model (will trigger download progress if needed)
+    get_nllb_model(model_name, progress_callback=progress_callback)
     
     with open(srt_path, 'r', encoding='utf-8') as f:
         content = f.read()
@@ -224,6 +613,14 @@ def translate_srt_content(srt_path: str, source_lang: str, target_lang: str, mod
             if len(translated_parts) != len(batch_texts):
                 translated_parts = [translate_text_nllb(text, source_lang, target_lang, model_name) for text in batch_texts]
             
+            # Apply LLM refinement if requested
+            if use_llm_refinement:
+                print(f"🤖 Refining translations with LLM ({ollama_model}, temp={ollama_temperature})...")
+                translated_parts = [
+                    refine_translation_with_llm(text, source_lang, target_lang, ollama_endpoint, ollama_model, ollama_temperature)
+                    for text in translated_parts
+                ]
+            
             # Combine with metadata and adjust timestamps
             for meta, translated_text in zip(batch_meta, translated_parts):
                 # Adjust timestamp based on text length ratio
@@ -240,6 +637,10 @@ def translate_srt_content(srt_path: str, source_lang: str, target_lang: str, mod
                 })
             
             print(f"Translated {len(translated_segments)}/{len(blocks)} segments...")
+    
+    # Clear NLLB model from GPU if requested
+    if clear_model:
+        clear_nllb_model()
     
     return translated_segments
 

@@ -22,14 +22,18 @@
 
 - 🎯 **AI-Powered Transcription** - OpenAI Whisper with GPU acceleration
 - 🌍 **Multi-Language Translation** - Facebook's NLLB-200-1.3B for 200+ languages
+- 🤖 **LLM Refinement** - Natural subtitles via Ollama integration (NLLB+LLM)
 - 🎬 **Triple SRT Output** - Original language, English, and target language
 - 📝 **Word-Level Timestamps** - Precise subtitle timing synchronization
 - 🌐 **Modern Web UI** - Browse files, monitor jobs, configure settings
 - 🚀 **Background Processing** - Queue multiple transcription jobs
 - 🔍 **Smart File Browser** - Search, filter, path memory, existing SRT detection
+- 📊 **Job History** - Track completed, failed, and cancelled jobs with filtering
+- 🔄 **Queue Management** - Bump, cancel, and clear jobs
 - 🐳 **Docker Ready** - One-click deployment on Unraid
-- 💾 **Persistent Settings** - Language preferences saved in browser
+- 💾 **Persistent Settings** - All configuration saved across restarts
 - ⚡ **GPU Optimized** - CUDA acceleration for 10x faster processing
+- 🎛️ **Bandwidth Control** - Configurable download speed limiting
 
 ## 🚀 Quick Start
 
@@ -217,6 +221,34 @@ movie.nl.srt      # Target language (e.g., Dutch)
 - **Translation:** 200+ via NLLB-200
 
 ## ⚙️ Configuration
+
+### Translation Methods
+
+| Method | Description | Requirements | Best For |
+|--------|-------------|--------------|----------|
+| **Whisper** | Audio-based transcription | None | Always works, best timing |
+| **NLLB only** | Text-based translation | English SRT exists | Fast, low memory |
+| **NLLB+Whisper** | Hybrid translation + timing | English SRT exists | Quality + timing |
+| **NLLB+LLM** ✨ | AI-refined natural subtitles | English SRT + Ollama | Most natural, conversational |
+
+### Ollama Integration (NLLB+LLM)
+
+Configure in Settings → LLM Configuration:
+- **Endpoint**: Ollama API URL (default: http://localhost:11434)
+- **Model**: Any Ollama model (default: qwen2.5:7b)
+- **Temperature**: 0.0-2.0 (default: 0.3 for consistency)
+
+**Setup Ollama:**
+```bash
+# Install Ollama
+curl -fsSL https://ollama.com/install.sh | sh
+
+# Pull a model
+ollama pull qwen2.5:7b
+
+# Verify it's running
+curl http://localhost:11434/api/tags
+```
 
 ### Whisper Model Selection
 

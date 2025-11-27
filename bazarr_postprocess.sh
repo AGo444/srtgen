@@ -5,16 +5,20 @@
 # Place this script in your Bazarr's custom post-processing directory
 # Configure in Bazarr: Settings > General > Post-Processing > Custom Post-Processing
 #
-# Bazarr Environment Variables:
-# - sonarr_episodefile_path: Full path to the video file
+# Bazarr Environment Variables (automatically provided):
+# - sonarr_episodefile_path: Full path to the video file (TV)
 # - sonarr_series_path: Series directory
 # - sonarr_episodefile_scenename: Episode filename
-# - radarr_moviefile_path: Full path to movie file (for movies)
+# - radarr_moviefile_path: Full path to movie file (Movies)
+# - bazarr_episode_file: Episode file path (alternative)
+# - bazarr_subtitles_language: Language code of the subtitle that triggered this (e.g., "nl", "en")
+# - bazarr_subtitles_path: Path to the subtitle file that was downloaded/processed
 #
 
 # Configuration
 SRTGEN_CONTAINER="srtgen"
-TARGET_LANGUAGE="${SRTGEN_TARGET_LANG:-nl}"  # Default to Dutch, override with env var
+# Use Bazarr's detected language if available, otherwise use default
+TARGET_LANGUAGE="${bazarr_subtitles_language:-${SRTGEN_TARGET_LANG:-nl}}"
 WHISPER_MODEL="${SRTGEN_MODEL:-base}"        # Default to base model
 OVERWRITE="${SRTGEN_OVERWRITE:-false}"       # Default to not overwrite
 
@@ -39,15 +43,24 @@ if [ -n "$sonarr_episodefile_path" ]; then
 elif [ -n "$radarr_moviefile_path" ]; then
     VIDEO_FILE="$radarr_moviefile_path"
     log "Type: Movie"
+elif [ -n "$bazarr_episode_file" ]; then
+    VIDEO_FILE="$bazarr_episode_file"
+    log "Type: Episode (via bazarr_episode_file)"
 else
     log "ERROR: No video file path provided by Bazarr"
     log "Available environment variables:"
-    env | grep -E "(sonarr_|radarr_)" | tee -a "$LOG_FILE"
+    env | grep -E "(sonarr_|radarr_|bazarr_)" | tee -a "$LOG_FILE"
     exit 1
 fi
 
 log "Video file: $VIDEO_FILE"
 log "Target language: $TARGET_LANGUAGE"
+if [ -n "$bazarr_subtitles_language" ]; then
+    log "Language source: Bazarr detected ($bazarr_subtitles_language)"
+fi
+if [ -n "$bazarr_subtitles_path" ]; then
+    log "Related subtitle: $bazarr_subtitles_path"
+fi
 log "Whisper model: $WHISPER_MODEL"
 log "Overwrite: $OVERWRITE"
 

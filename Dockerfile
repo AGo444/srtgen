@@ -1,12 +1,15 @@
 FROM python:3.11-slim
 
-# Install FFmpeg and system dependencies
-RUN apt-get update && apt-get install -y \
+# Update system packages to patch security vulnerabilities
+RUN apt-get update && apt-get upgrade -y && apt-get install -y \
     ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
 # Set working directory
 WORKDIR /app
+
+# Upgrade pip to latest version to patch CVE
+RUN pip install --no-cache-dir --upgrade pip>=25.3
 
 # Copy requirements first for better caching
 COPY requirements.txt .
@@ -33,6 +36,7 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
 # Set environment variables
 ENV FLASK_APP=app.py
 ENV MEDIA_FOLDER=/media
+ENV PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 
-# Run the web application
-CMD ["python", "app.py"]
+# Run the web application with Gunicorn
+CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--workers", "1", "--threads", "4", "--timeout", "300", "--access-logfile", "-", "--error-logfile", "-", "app:app"]
